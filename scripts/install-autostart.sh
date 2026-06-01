@@ -46,11 +46,43 @@ run_as_user() {
   sudo -u "${SERVICE_USER}" -H bash -c "cd '${INSTALL_DIR}' && $*"
 }
 
+venv_python() {
+  echo "${INSTALL_DIR}/.venv/bin/python"
+}
+
+venv_has_pip() {
+  run_as_user "$(venv_python) -m pip --version" &>/dev/null
+}
+
+bootstrap_venv_pip() {
+  echo "    Bootstrapping pip in virtual environment..."
+  if ! run_as_user "$(venv_python) -m ensurepip --upgrade"; then
+    echo "Failed to install pip into .venv." >&2
+    echo "On Debian/Ubuntu/Orange Pi, install: sudo apt install python3-venv python3-pip" >&2
+    exit 1
+  fi
+}
+
 echo "==> Preparing Python virtual environment and dependencies"
-if [[ ! -d "${INSTALL_DIR}/.venv" ]]; then
-  run_as_user "python3 -m venv .venv"
+if [[ ! -x "$(venv_python)" ]]; then
+  if ! run_as_user "python3 -m venv .venv"; then
+    echo "Failed to create virtual environment." >&2
+    echo "On Debian/Ubuntu/Orange Pi, install: sudo apt install python3-venv" >&2
+    exit 1
+  fi
 fi
-run_as_user ".venv/bin/pip install -r requirements.txt"
+
+if ! venv_has_pip; then
+  bootstrap_venv_pip
+fi
+
+if ! venv_has_pip; then
+  echo "pip is still unavailable in .venv after ensurepip." >&2
+  echo "Try: rm -rf .venv && sudo apt install python3-venv python3-pip && re-run this script" >&2
+  exit 1
+fi
+
+run_as_user "$(venv_python) -m pip install -r requirements.txt"
 
 if [[ ! -f "${INSTALL_DIR}/.env" ]]; then
   if [[ -f "${INSTALL_DIR}/.env.example" ]]; then
