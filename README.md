@@ -48,6 +48,10 @@ PyDistance-Service/
 │   └── logger.py        # 日志配置
 ├── .env.example         # 配置模板
 ├── requirements.txt
+├── scripts/
+│   ├── pydistance.service      # systemd 单元模板
+│   ├── install-autostart.sh    # 安装开机自启
+│   └── uninstall-autostart.sh  # 卸载自启
 ├── Dockerfile
 ├── .dockerignore
 ├── .gitignore
@@ -103,6 +107,38 @@ python -m app.main
 ```
 
 打开 <http://localhost:8000/docs> 查看 Swagger UI。
+
+## 开机自启动（systemd）
+
+在树莓派 / 嵌入式 Linux 上，可用安装脚本配置 **本机 venv + systemd** 开机自启（与 `python -m app.main` 一致）：
+
+```bash
+chmod +x scripts/install-autostart.sh scripts/uninstall-autostart.sh
+sudo ./scripts/install-autostart.sh
+```
+
+脚本会：创建/更新 `.venv`、安装依赖、从 `.env.example` 生成 `.env`（若不存在）、将运行用户加入 `i2c` 组、安装并启用 `pydistance.service`。
+
+可选环境变量（安装前导出）：
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `INSTALL_DIR` | 仓库根目录 | 项目路径 |
+| `SERVICE_USER` | `sudo` 调用者 | 运行服务的系统用户 |
+
+常用运维：
+
+```bash
+sudo systemctl status pydistance
+sudo journalctl -u pydistance -f
+curl -fsS http://127.0.0.1:8000/health
+
+# 修改 .env 后需重启
+sudo systemctl restart pydistance
+
+# 卸载自启（保留 .venv、.env、logs）
+sudo ./scripts/uninstall-autostart.sh
+```
 
 ## Web 仪表盘
 

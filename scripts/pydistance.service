@@ -1,0 +1,17 @@
+[Unit]
+Description=PyDistance-Service - ADS1115 laser displacement sensor API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Group=@SERVICE_GROUP@
+WorkingDirectory=@INSTALL_DIR@
+ExecStart=@INSTALL_DIR@/.venv/bin/python -m app.main
+Restart=on-failure
+RestartSec=5
+SupplementaryGroups=i2c gpio
+
+[Install]
+WantedBy=multi-user.target
