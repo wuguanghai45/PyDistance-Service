@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     # --- Service ---
     HOST: str = "0.0.0.0"
     PORT: int = 8000
+    WS_PUSH_INTERVAL: float = 0.1
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "logs/service.log"
 

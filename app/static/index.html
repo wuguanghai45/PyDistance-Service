@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PyDistance 高度监测</title>
+  <link rel="stylesheet" href="/css/dashboard.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div class="header__brand">
+        <h1 class="header__title">PyDistance 高度监测</h1>
+        <p class="header__subtitle">实时双通道激光位移</p>
+      </div>
+      <div class="header__meta">
+        <div class="connection" id="connection">
+          <span class="connection__dot" id="connection-dot"></span>
+          <span class="connection__label" id="connection-label">连接中…</span>
+        </div>
+        <time class="timestamp" id="timestamp">—</time>
+      </div>
+    </header>
+
+    <main class="grid">
+      <article class="card" id="card-ch0" data-channel="0">
+        <div class="card__header">
+          <h2 class="card__title">通道 1</h2>
+          <span class="badge badge--unknown" id="status-ch0">—</span>
+        </div>
+        <div class="card__value-wrap">
+          <span class="card__value" id="value-ch0">—</span>
+          <span class="card__unit">mm</span>
+        </div>
+        <p class="card__label">高度</p>
+        <dl class="card__details">
+          <div class="card__detail">
+            <dt>电压</dt>
+            <dd id="voltage-ch0">—</dd>
+          </div>
+          <div class="card__detail">
+            <dt>窗口样本</dt>
+            <dd id="samples-ch0">—</dd>
+          </div>
+        </dl>
+      </article>
+
+      <article class="card" id="card-ch1" data-channel="1">
+        <div class="card__header">
+          <h2 class="card__title">通道 2</h2>
+          <span class="badge badge--unknown" id="status-ch1">—</span>
+        </div>
+        <div class="card__value-wrap">
+          <span class="card__value" id="value-ch1">—</span>
+          <span class="card__unit">mm</span>
+        </div>
+        <p class="card__label">高度</p>
+        <dl class="card__details">
+          <div class="card__detail">
+            <dt>电压</dt>
+            <dd id="voltage-ch1">—</dd>
+          </div>
+          <div class="card__detail">
+            <dt>窗口样本</dt>
+            <dd id="samples-ch1">—</dd>
+          </div>
+        </dl>
+      </article>
+    </main>
+
+    <footer class="footer">
+      <span>WebSocket <code>/ws/distance</code></span>
+    </footer>
+  </div>
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>

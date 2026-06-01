@@ -7,6 +7,7 @@
 - 基于 1 秒滑动窗口的鲁棒滤波（`trimmed_mean` / `median` / `mean`）
 - I2C 单例 + 异常容错 + 日志告警
 - 内置 Swagger 自动文档（`/docs`）
+- Web 仪表盘（`/`）实时显示双通道高度，WebSocket 推送
 - 可选 Docker 部署
 
 ## 架构
@@ -41,7 +42,9 @@ PyDistance-Service/
 │   ├── config.py        # pydantic-settings 配置
 │   ├── sensor.py        # ADS1115 单例 HAL + 采样线程
 │   ├── routes.py        # /api/v1/* + /health
+│   ├── ws_routes.py     # WebSocket /ws/distance
 │   ├── schemas.py       # Pydantic 响应模型
+│   ├── static/          # 高度监测仪表盘（HTML/CSS/JS）
 │   └── logger.py        # 日志配置
 ├── .env.example         # 配置模板
 ├── requirements.txt
@@ -100,6 +103,16 @@ python -m app.main
 ```
 
 打开 <http://localhost:8000/docs> 查看 Swagger UI。
+
+## Web 仪表盘
+
+启动服务后，在浏览器访问根路径即可查看双通道实时高度：
+
+- **页面**：<http://localhost:8000/>
+- **WebSocket**：`ws://localhost:8000/ws/distance`（推送 JSON，结构与 `GET /api/v1/distance` 相同）
+- **推送频率**：由 `WS_PUSH_INTERVAL` 控制（默认 `0.1` 秒，约 10 次/秒）
+
+断线后页面会自动重连。
 
 ## API
 
@@ -161,6 +174,10 @@ python -m app.main
 
 轻量探针，永远返回 `{"status": "ok"}`。适合 K8s / Docker 健康检查。
 
+### `WebSocket /ws/distance`
+
+持续推送滤波后的距离读数，消息体与 `GET /api/v1/distance` 响应一致。适合仪表盘等需要实时刷新的客户端。
+
 ## 配置参数
 
 所有参数通过 `.env` 注入，完整说明见 [.env.example](.env.example)。关键参数：
@@ -178,6 +195,7 @@ python -m app.main
 | `FILTER_METHOD` | `trimmed_mean` | `mean` / `median` / `trimmed_mean` |
 | `TRIM_RATIO` | 0.2 | 截尾均值两端裁剪比例 |
 | `ANOMALY_JUMP_MM` | 50.0 | 距离跳变阈值（mm），超过即写 WARNING |
+| `WS_PUSH_INTERVAL` | 0.1 | WebSocket 推送间隔（秒） |
 
 ## Docker 部署
 
