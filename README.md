@@ -83,15 +83,20 @@ sudo raspi-config            # Interfacing Options → I2C → Enable
 sudo usermod -aG i2c $USER
 
 # 检查总线 & 地址（ADS1115 默认 0x48）
-sudo apt-get install -y i2c-tools
+sudo apt-get install -y i2c-tools libgpiod2 python3-libgpiod
 i2cdetect -y 1
 ```
+
+> **树莓派 5 / Bookworm 及以上**：`adafruit-blinka` 依赖系统包 `python3-libgpiod`。虚拟环境须带 `--system-site-packages`，否则会出现 `libgpiod Python bindings not found`。不要用 `pip install gpiod` 替代系统绑定（易与 blinka 冲突）。
 
 ## 本地运行
 
 ```bash
-# 1. 创建虚拟环境
-python3 -m venv .venv
+# 0. 系统依赖（树莓派 / Debian 嵌入式，首次执行一次）
+sudo apt-get install -y i2c-tools libgpiod2 python3-libgpiod
+
+# 1. 创建虚拟环境（须包含系统 site-packages，才能加载 gpiod）
+python3 -m venv .venv --system-site-packages
 source .venv/bin/activate
 
 # 2. 安装依赖
@@ -276,6 +281,7 @@ curl http://localhost:8000/api/v1/distance | jq
 
 | 现象 | 排查 |
 |------|------|
+| 日志 `Failed to import hardware libraries: libgpiod Python bindings not found` | `sudo apt install -y libgpiod2 python3-libgpiod`；删除并用 `python3 -m venv .venv --system-site-packages` 重建 venv；在 venv 内执行 `pip uninstall -y gpiod`（若曾 pip 安装）；验证：`.venv/bin/python -c "import gpiod; import board"` |
 | `/api/v1/status` 返回 503，`sensor_online=false` | 检查 I2C 是否启用 (`i2cdetect -y 1`)；ADS1115 是否上电；`I2C_ADDRESS` 是否正确 |
 | `actual_sample_rate_hz` 远低于预期 | 调大 `ADS_DATA_RATE`，减小 `SAMPLE_INTERVAL`；检查 I2C 总线是否被其他设备占用 |
 | `distance_mm` 抖动大 | 增大 `WINDOW_SECONDS`、使用 `median`；或检查分压电路稳定性 |

@@ -31,10 +31,22 @@ for cmd in python3 systemctl; do
   fi
 done
 
+echo "==> Installing system packages (I2C + libgpiod for adafruit-blinka)"
+if command -v apt-get &>/dev/null; then
+  apt-get update -qq
+  apt-get install -y --no-install-recommends \
+    i2c-tools \
+    libgpiod2 \
+    python3-libgpiod \
+    || {
+      echo "Warning: some apt packages failed; blinka may need: apt install i2c-tools libgpiod2 python3-libgpiod" >&2
+    }
+else
+  echo "    Warning: apt-get not found; install i2c-tools and python3-libgpiod manually" >&2
+fi
+
 if command -v i2cdetect &>/dev/null; then
   echo "    Tip: verify I2C with: i2cdetect -y 1"
-else
-  echo "    Warning: i2c-tools not installed (optional: apt install i2c-tools)"
 fi
 
 if [[ ! -f "${INSTALL_DIR}/requirements.txt" ]]; then
@@ -64,8 +76,16 @@ bootstrap_venv_pip() {
 }
 
 echo "==> Preparing Python virtual environment and dependencies"
+# adafruit-blinka needs system gpiod bindings (python3-libgpiod) visible inside the venv.
+VENV_FLAGS=(--system-site-packages)
+if [[ -f "${INSTALL_DIR}/.venv/pyvenv.cfg" ]] \
+  && ! grep -q '^include-system-site-packages = true' "${INSTALL_DIR}/.venv/pyvenv.cfg"; then
+  echo "    Recreating .venv with --system-site-packages (required for libgpiod / blinka)"
+  rm -rf "${INSTALL_DIR}/.venv"
+fi
+
 if [[ ! -x "$(venv_python)" ]]; then
-  if ! run_as_user "python3 -m venv .venv"; then
+  if ! run_as_user "python3 -m venv .venv ${VENV_FLAGS[*]}"; then
     echo "Failed to create virtual environment." >&2
     echo "On Debian/Ubuntu/Orange Pi, install: sudo apt install python3-venv" >&2
     exit 1
