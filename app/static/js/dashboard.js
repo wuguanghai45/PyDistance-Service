@@ -60,7 +60,7 @@
     if (mm === null || mm === undefined) {
       return null;
     }
-    return Number(mm).toFixed(2);
+    return String(Math.trunc(Number(mm)));
   }
 
   function updateChannel(reading) {

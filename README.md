@@ -128,7 +128,7 @@ python -m app.main
   "channels": [
     {
       "channel": 0,
-      "distance_mm": 1250.45,
+      "distance_mm": 1250,
       "raw_voltage": 5.023,
       "samples_in_window": 48,
       "status": "Normal",
@@ -136,7 +136,7 @@ python -m app.main
     },
     {
       "channel": 1,
-      "distance_mm": 980.10,
+      "distance_mm": 980,
       "raw_voltage": 3.945,
       "samples_in_window": 48,
       "status": "Normal",

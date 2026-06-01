@@ -291,7 +291,7 @@ class SensorService:
             channels_out.append(
                 {
                     "channel": ch,
-                    "distance_mm": round(distance, 2) if distance is not None else None,
+                    "distance_mm": int(distance) if distance is not None else None,
                     "raw_voltage": round(filtered_v, 4),
                     "samples_in_window": samples_in_window,
                     "status": status,

@@ -14,7 +14,8 @@ class ChannelReading(BaseModel):
 
     channel: int = Field(..., ge=0, le=3, description="ADS1115 channel index")
     distance_mm: float | None = Field(
-        None, description="Distance in millimetres, null when status != Normal"
+        None,
+        description="Distance in millimetres (truncated to whole mm), null when status != Normal",
     )
     raw_voltage: float = Field(
         ..., description="Filtered sensor voltage in volts (after divider compensation)"
