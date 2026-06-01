@@ -119,6 +119,16 @@ sudo ./scripts/install-autostart.sh
 
 脚本会：创建/更新 `.venv`、安装依赖、从 `.env.example` 生成 `.env`（若不存在）、将运行用户加入 `i2c` 组、安装并启用 `pydistance.service`。
 
+若 venv 内没有 `pip`（常见于 Orange Pi / 精简 Debian），请先安装系统包再重试：
+
+```bash
+sudo apt update
+sudo apt install -y python3-venv python3-pip
+# 若之前安装失败，可删除残缺 venv 后重装
+rm -rf .venv
+sudo ./scripts/install-autostart.sh
+```
+
 可选环境变量（安装前导出）：
 
 | 变量 | 默认 | 说明 |
