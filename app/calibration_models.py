@@ -61,8 +61,8 @@ class StationConfig(StrictModel):
     command_timeout_seconds: float = Field(default=60, ge=1, le=600)
     confirmation_timeout_seconds: float = Field(default=300, ge=5, le=1800)
     telemetry_timeout_seconds: float = Field(default=3, ge=0.2, le=30)
-    position_tolerance_mm: float = Field(default=10, gt=0, le=30)
-    orientation_tolerance_deg: float = Field(default=2, gt=0, le=3)
+    position_tolerance_mm: float = Field(default=50, gt=0, le=50)
+    orientation_tolerance_deg: float = Field(default=5, gt=0, le=10)
     lift_tolerance_mm: float = Field(default=3, gt=0, le=20)
     velocity: int = Field(default=100, gt=0, le=500)
     acceleration: int = Field(default=100, gt=0, le=500)
@@ -114,7 +114,7 @@ class StartRequest(StrictModel):
 
     config_id: str
     identity_type: Literal["robotLabel", "robotSN"] = Field(
-        default="robotLabel", description="记录标识类型；不改变 MQTT 主题后缀"
+        default="robotSN", description="记录标识类型；不改变 MQTT 主题后缀"
     )
     identity: str = Field(
         min_length=1,
@@ -152,5 +152,5 @@ def demo_config() -> StationConfig:
         bin=Point(code="DEMO-BIN", x=2000, y=0, orientation=180),
         finish=Point(code="DEMO-END", x=3000, y=0, orientation=0),
         low_height_mm=0,
-        high_height_mm=100,
+        high_height_mm=300,
     )

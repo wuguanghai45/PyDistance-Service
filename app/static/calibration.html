@@ -35,7 +35,7 @@
         <section class="panel">
           <div class="section-heading"><div><span class="eyebrow">02 / RUN</span><h2>启动标定</h2></div><span class="pill" id="mode-badge">模拟模式</span></div>
           <form id="start-form">
-            <div class="fields"><label>识别类型 <select id="identity-type"><option value="robotLabel">robotLabel</option><option value="robotSN">robotSN</option></select></label><label>机器人标识 <input id="identity" required pattern="[A-Za-z0-9_.:\-]+" placeholder="输入 robotLabel 或 robotSN" /></label><label>运行模式 <select id="mode"><option value="simulation">模拟 · 不连接机器人</option><option id="live-option" value="live" disabled>实机 · MQTT 控制</option></select></label></div>
+            <div class="fields"><label>识别类型 <select id="identity-type"><option value="robotSN">robotSN</option><option value="robotLabel">robotLabel</option></select></label><label>机器人标识 <input id="identity" required pattern="[A-Za-z0-9_.:\-]+" placeholder="输入 robotSN" /></label><label>运行模式 <select id="mode"><option id="live-option" value="live" disabled>实机 · MQTT 控制</option><option value="simulation">模拟 · 不连接机器人</option></select></label></div>
             <p class="hint">输入值直接用于 robot/state/{标识} 等 MQTT 主题，必须与机器人实际使用的标识一致。</p>
             <div id="live-checks" hidden>
               <label class="check"><input id="ground-clear" type="checkbox" /> 光路照射地面，无遮挡，可以记录地面基准</label>
@@ -54,7 +54,15 @@
           <p id="task-meta" class="hint">空载：ALN → AHN → BHN → BLN　负载：BHY → BLY → ALY → AHY</p>
           <progress id="progress" max="8" value="0" aria-label="已采集测量项"></progress>
           <div class="metrics"><div><span>地面基准</span><strong id="baseline">—</strong></div><div><span>采样等待</span><strong id="countdown">—</strong></div><div><span>验收结果</span><strong id="verdict">待采集</strong></div></div>
-          <p id="robot-state" class="hint">机器人状态：—</p>
+          <div id="robot-diagnostics" class="robot-diagnostics">
+            <div class="robot-diagnostics-head">
+              <strong id="robot-main-state">等待机器人状态</strong>
+              <span id="robot-stationary-pill" class="pill" hidden>—</span>
+            </div>
+            <p id="robot-pose" class="hint" hidden>—</p>
+            <p id="robot-motion" class="hint" hidden>—</p>
+            <p id="robot-extra" class="hint" hidden>—</p>
+          </div>
           <p id="task-error" class="error" role="alert" hidden></p>
           <div class="table-scroll"><table><thead><tr><th>测量项</th><th>传感器 / mm</th><th>高度 / mm</th><th>偏差 / mm</th><th>判定</th></tr></thead><tbody id="measurements"></tbody></table></div>
           <div class="actions"><button id="confirm-step" hidden type="button">确认现场状态</button><button id="cancel" class="danger" type="button" disabled>取消后续调度</button><button id="release" class="danger" hidden type="button">确认安全并解锁</button><button id="export" class="secondary" type="button" disabled>导出 CSV</button><button id="export-json" class="secondary" type="button" disabled>完整记录 JSON</button></div>

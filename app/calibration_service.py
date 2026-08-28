@@ -133,9 +133,20 @@ class CalibrationService:
     def snapshot(self, task_id: str) -> dict:
         """Read a persisted task and attach the active robot's latest telemetry."""
         task = self.store.task(task_id)
+        state = task.get("robot_state") or {}
+        telemetry_age_s = None
+        mqtt_connected = None
         if self.current and self.current["id"] == task_id and self.robot:
-            task["robot_state"] = self.robot.state.copy()
-            task["mqtt_connected"] = self.robot.connected
+            state = self.robot.state.copy()
+            task["robot_state"] = state
+            mqtt_connected = self.robot.connected
+            if self.robot.received_at:
+                telemetry_age_s = round(time.monotonic() - self.robot.received_at, 2)
+        task["robot_diagnostics"] = self.robot_diagnostics(
+            state,
+            telemetry_age_s=telemetry_age_s,
+            mqtt_connected=mqtt_connected,
+        )
         task["station_locked"] = self.store.owner() == task_id
         return task
 
@@ -173,7 +184,8 @@ class CalibrationService:
                     raise ValueError("机器人定位未知；未启用按已确认起点设置原点")
                 self._step("HOME", "使用已人工确认的起始地码设置原点")
                 await self.robot.command("HOME_SET_ORIGIN")
-            self._assert_idle()
+            if not self._is_idle():
+                await self._wait_idle(config)
             self._assert_point(config.start, config.start.orientation, config)
             if task["mode"] == "live" and config.load_feedback_field:
                 self._assert_load(False, config)
@@ -264,26 +276,105 @@ class CalibrationService:
                 self._save()
             # Failed live sessions keep the durable station lock for operator acknowledgement.
 
+    @staticmethod
+    def _velocity_is_zero(state: dict) -> bool:
+        """Treat missing or non-numeric velocity as zero; only reject finite non-zero values."""
+        if "velocity" not in state:
+            return True
+        value = state["velocity"]
+        if isinstance(value, bool):
+            return False
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return False
+        return math.isfinite(numeric) and abs(numeric) < 1e-3
+
+    @staticmethod
+    def is_still(state: dict) -> bool:
+        """Return whether telemetry reports IDLE with zero linear velocity."""
+        return state.get("mainState") == "IDLE" and CalibrationService._velocity_is_zero(state)
+
+    @staticmethod
+    def robot_diagnostics(
+        state: dict,
+        *,
+        telemetry_age_s: float | None = None,
+        mqtt_connected: bool | None = None,
+    ) -> dict:
+        """Summarize whether telemetry satisfies the same idle gate used before sampling."""
+        blockers: list[dict] = []
+        if state.get("mainState") != "IDLE":
+            blockers.append(
+                {
+                    "field": "mainState",
+                    "value": state.get("mainState"),
+                    "reason": "mainState is not IDLE",
+                }
+            )
+        elif not CalibrationService._velocity_is_zero(state):
+            blockers.append(
+                {
+                    "field": "velocity",
+                    "value": state.get("velocity"),
+                    "reason": "non-zero velocity",
+                }
+            )
+        return {
+            "stationary": CalibrationService.is_still(state),
+            "blockers": blockers,
+            "telemetry_age_s": telemetry_age_s,
+            "mqtt_connected": mqtt_connected,
+        }
+
+    def _is_idle(self) -> bool:
+        """Return whether live telemetry reports a stationary IDLE robot."""
+        return self.is_still(self.robot.state)
+
     def _assert_idle(self) -> None:
         """Require current, fault-free telemetry and zero motion for measurements."""
         self.robot.guard()
-        if self.robot.state.get("mainState") != "IDLE":
-            raise RuntimeError("机器人未静止或不处于 IDLE")
-        for key in ("velocity", "angularVelocity"):
-            if key in self.robot.state and self.robot.state[key] != 0:
-                raise RuntimeError("机器人速度非零，禁止采样")
+        if not self._is_idle():
+            if self.robot.state.get("mainState") != "IDLE":
+                raise RuntimeError("机器人未静止或不处于 IDLE")
+            raise RuntimeError("机器人速度非零，禁止采样")
+
+    async def _wait_idle(self, config: StationConfig) -> None:
+        """Wait until telemetry reports a stationary IDLE robot."""
+        deadline = time.monotonic() + config.command_timeout_seconds
+        while True:
+            self.robot.guard()
+            if self._is_idle():
+                return
+            if time.monotonic() >= deadline:
+                raise TimeoutError("等待机器人静止超时")
+            await asyncio.sleep(0.05)
 
     def _assert_point(
         self, point: Point, orientation: float, config: StationConfig
     ) -> None:
-        """Verify position, heading and scan status, optionally the actual code string."""
+        """Verify pose within XY ±50 mm / heading ±5° (config), then optional scan fields."""
         target = {
             "coordX": point.x,
             "coordY": point.y,
             "orientation": round(orientation * 100),
         }
         if not target_matches(self.robot.state, target, config):
-            raise ValueError(f"未到位或朝向不匹配：{point.code}")
+            state = self.robot.state
+            actual_heading = state.get("orientation")
+            heading_text = (
+                f"{actual_heading / 100:.3f}°"
+                if isinstance(actual_heading, (int, float))
+                and not isinstance(actual_heading, bool)
+                else str(actual_heading)
+            )
+            raise ValueError(
+                f"未到位或朝向不匹配：{point.code} "
+                f"（目标 X={point.x} Y={point.y} {orientation:g}°，"
+                f"实际 X={state.get('coordX')} Y={state.get('coordY')} {heading_text}，"
+                f"允许 ±{config.position_tolerance_mm:g} mm / "
+                f"±{config.orientation_tolerance_deg:g}°）"
+            )
         if self.current["mode"] == "simulation":
             return
         if self.robot.state.get("qrCodeStatus") != config.scan_valid_value:
@@ -304,17 +395,19 @@ class CalibrationService:
             dx, dy = point.x - state["coordX"], point.y - state["coordY"]
             if math.hypot(dx, dy) > 0.1:
                 heading = math.degrees(math.atan2(dy, dx)) % 360
-                if angle_error(state["orientation"] / 100, heading) > 0.01:
+                if (
+                    angle_error(state["orientation"] / 100, heading)
+                    > config.orientation_tolerance_deg
+                ):
                     await self.robot.command("SPIN", orientation=round(heading * 100))
                 await self.robot.command("MOVE", coordX=point.x, coordY=point.y)
             if (
                 angle_error(self.robot.state["orientation"] / 100, point.orientation)
-                > 0.01
+                > config.orientation_tolerance_deg
             ):
                 await self.robot.command(
                     "SPIN", orientation=round(point.orientation * 100)
                 )
-            self._assert_idle()
             self._assert_point(point, point.orientation, config)
 
     async def _box_move(
@@ -333,24 +426,33 @@ class CalibrationService:
         ):
             raise ValueError("取放箱行驶前朝向错误")
         await self.robot.command("MOVE", coordX=point.x, coordY=point.y)
-        self._assert_idle()
         self._assert_point(point, orientation, config)
 
     async def _wait_still(
         self, seconds: float, expected: dict, config: StationConfig
     ) -> None:
         """Wait cancellably while checking pose, fresh telemetry and faults throughout."""
-        deadline = time.monotonic() + seconds
-        self.current["wait_until"] = time.time() + seconds
-        self._save()
+        deadline = time.monotonic() + config.command_timeout_seconds
+        still_until: float | None = None
         while True:
-            self._assert_idle()
-            if not target_matches(self.robot.state, expected, config):
-                raise ValueError("等待/采样期间机器人位姿或举升高度发生偏移")
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            await asyncio.sleep(min(0.05, remaining))
+            self.robot.guard()
+            if self._is_idle():
+                if still_until is None:
+                    still_until = time.monotonic() + seconds
+                    self.current["wait_until"] = time.time() + seconds
+                    self._save()
+                if not target_matches(self.robot.state, expected, config):
+                    raise ValueError("等待/采样期间机器人位姿或举升高度发生偏移")
+                if time.monotonic() >= still_until:
+                    break
+            else:
+                if still_until is not None:
+                    still_until = None
+                    self.current["wait_until"] = None
+                    self._save()
+            if time.monotonic() >= deadline:
+                raise TimeoutError("等待机器人静止超时")
+            await asyncio.sleep(0.05)
         self.current["wait_until"] = None
 
     async def _measure(self, key: str, config: StationConfig) -> None:
@@ -441,7 +543,12 @@ class CalibrationService:
             self._save()
         deadline = time.monotonic() + config.confirmation_timeout_seconds
         while True:
-            self._assert_idle()
+            self.robot.guard()
+            if not self._is_idle():
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("等待机器人静止超时")
+                await asyncio.sleep(0.05)
+                continue
             if config.load_feedback_field:
                 value = field_value(self.robot.state, config.load_feedback_field)
                 valid = (

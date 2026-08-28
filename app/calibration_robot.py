@@ -94,7 +94,7 @@ def build_command(
 
 
 def target_matches(state: dict, target: dict, config: StationConfig) -> bool:
-    """Check the measured pose, orientation and lift against a completed target."""
+    """Check pose against target using configured XY (default ±50 mm) and heading (±5°) tolerances."""
     for key, value in target.items():
         actual = state.get(key)
         if (
@@ -109,10 +109,11 @@ def target_matches(state: dict, target: dict, config: StationConfig) -> bool:
                 > config.orientation_tolerance_deg
             ):
                 return False
+        elif key in ("coordX", "coordY"):
+            if abs(actual - value) > config.position_tolerance_mm:
+                return False
         elif abs(actual - value) > (
-            config.lift_tolerance_mm
-            if key == "liftHeight"
-            else config.position_tolerance_mm
+            config.lift_tolerance_mm if key == "liftHeight" else config.position_tolerance_mm
         ):
             return False
     return True

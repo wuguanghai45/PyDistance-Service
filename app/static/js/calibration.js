@@ -140,6 +140,55 @@
   }));
 
   const number = (value) => value === null || value === undefined ? "—" : Number(value).toFixed(3);
+  const blockerLabels = {
+    mainState: "主状态非 IDLE",
+    velocity: "线速度非零",
+  };
+  function velocityIsZero(state) {
+    if (!("velocity" in state)) return true;
+    const value = Number(state.velocity);
+    return Number.isFinite(value) && Math.abs(value) < 1e-3;
+  }
+  function diagnosticsFromState(state) {
+    const blockers = [];
+    if (state.mainState !== "IDLE") blockers.push({ field: "mainState", value: state.mainState, reason: blockerLabels.mainState });
+    else if (!velocityIsZero(state)) blockers.push({ field: "velocity", value: state.velocity, reason: blockerLabels.velocity });
+    return { stationary: state.mainState === "IDLE" && velocityIsZero(state), blockers, telemetry_age_s: null, mqtt_connected: null };
+  }
+  function motionText(state, key) {
+    if (!(key in state)) return "未上报";
+    const value = Number(state[key]);
+    if (!Number.isFinite(value)) return String(state[key]);
+    return `${number(value)} mm/s${Math.abs(value) < 1e-3 ? "（零）" : "（非零）"}`;
+  }
+  function renderRobotDiagnostics(task) {
+    const state = task.robot_state || {};
+    const diag = task.robot_diagnostics || diagnosticsFromState(state);
+    const hasState = !!state.mainState;
+    $("robot-main-state").textContent = hasState ? `机器人 ${state.mainState}` : "等待机器人状态";
+    $("robot-stationary-pill").hidden = !hasState;
+    if (hasState) {
+      const pill = $("robot-stationary-pill");
+      pill.textContent = diag.stationary ? "满足采样静止条件" : "未满足采样静止条件";
+      pill.className = diag.stationary ? "pill ok" : "pill warn";
+    }
+    $("robot-pose").hidden = !hasState;
+    $("robot-motion").hidden = !hasState;
+    if (hasState) {
+      $("robot-pose").textContent = `位姿 · X ${number(state.coordX)} / Y ${number(state.coordY)} · 朝向 ${number(state.orientation / 100)}° · 举升 ${number(state.liftHeight)} mm`;
+      $("robot-motion").textContent = `运动 · 线速度 ${motionText(state, "velocity")} · 角速度 ${motionText(state, "angularVelocity")}`;
+      $("robot-motion").className = diag.stationary ? "hint" : "hint warn-text";
+    }
+    const extras = [];
+    if (state.qrCodeStatus !== undefined && state.qrCodeStatus !== null) extras.push(`扫码 ${state.qrCodeStatus}`);
+    if (diag.telemetry_age_s != null) extras.push(`状态 ${diag.telemetry_age_s.toFixed(1)} s 前更新`);
+    if (diag.mqtt_connected != null) extras.push(diag.mqtt_connected ? "MQTT 已连接" : "MQTT 未连接");
+    if (diag.blockers?.length) {
+      extras.push(`阻塞：${diag.blockers.map((item) => `${blockerLabels[item.field] || item.reason}${item.value == null ? "" : ` (${item.value})`}`).join("；")}`);
+    }
+    $("robot-extra").hidden = !extras.length;
+    $("robot-extra").textContent = extras.join(" · ");
+  }
   function renderTask(task) {
     currentTask = task;
     $("task-title").textContent = task.step_title;
@@ -150,8 +199,7 @@
     $("verdict").textContent = labels[task.verdict] || task.verdict;
     $("verdict").className = task.verdict.toLowerCase();
     $("task-error").hidden = !task.error; $("task-error").textContent = task.error || "";
-    const r = task.robot_state;
-    $("robot-state").textContent = r.mainState ? `机器人 ${r.mainState} · X ${number(r.coordX)} / Y ${number(r.coordY)} · 朝向 ${number(r.orientation / 100)}° · 举升 ${number(r.liftHeight)} mm` : "等待机器人状态";
+    renderRobotDiagnostics(task);
     $("measurements").replaceChildren();
     for (const key of order) {
       const m = task.measurements[key], row = el("tr", null);
@@ -227,6 +275,9 @@
     system = await json("/system"); stationOwner = system.station_owner;
     $("system-status").textContent = system.live_enabled ? "服务在线 · 实机已启用" : "服务在线 · 仅模拟可用（实机未启用）";
     $("live-option").disabled = !system.live_enabled;
+    $("identity-type").value = "robotSN";
+    $("mode").value = system.live_enabled ? "live" : "simulation";
+    setMode();
     await refreshRecipes();
     if (!currentConfig) { if (recipes.length) loadRecipe(recipes[0].config, recipes[0].id); else loadRecipe(system.demo_config); }
     await refreshHistory();
@@ -234,7 +285,19 @@
     updateStart(); message("服务已连接。");
   }
   $("connect").addEventListener("click", handle(connect));
-  const clock = setInterval(() => { $("countdown").textContent = currentTask?.wait_until ? `${Math.max(0, currentTask.wait_until - Date.now() / 1000).toFixed(1)} s` : "—"; }, 100);
+  const clock = setInterval(() => {
+    if (!currentTask?.wait_until) {
+      const waitingStill = currentTask?.status === "RUNNING"
+        && currentTask.step?.startsWith("MEASURE_")
+        && currentTask.robot_diagnostics
+        && !currentTask.robot_diagnostics.stationary;
+      $("countdown").textContent = waitingStill ? "等待静止" : "—";
+      $("countdown").className = waitingStill ? "waiting" : "";
+      return;
+    }
+    $("countdown").textContent = `${Math.max(0, currentTask.wait_until - Date.now() / 1000).toFixed(1)} s`;
+    $("countdown").className = "";
+  }, 100);
   for (const key of order) {
     const row = el("tr", null);
     [key, "—", "—", "—", "待采集"].forEach((value) => row.append(el("td", value)));

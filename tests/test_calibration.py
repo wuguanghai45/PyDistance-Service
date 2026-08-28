@@ -77,13 +77,13 @@ def test_full_simulation_order_motion_and_precision(setup):
         assert all(m["reading"]["channel"] == 1 for m in task["measurements"].values())
         assert [m["height_mm"] for m in task["measurements"].values()] == [
             250,
-            350,
-            351,
+            550,
+            551,
             251,
-            349,
+            549,
             249,
             248,
-            348,
+            548,
         ]
         assert task["verdict"] == "NOT_EVALUATED"
         assert task["robot_state"]["coordX"] == config.finish.x
@@ -505,6 +505,51 @@ def test_wire_units_and_obstacle_avoidance():
     assert command["commandContent"]["obstacleAvoidance"] is True
     assert command["expectedState"]["coordX"] == state["coordX"]
     assert target_matches({"orientation": 35990}, {"orientation": 0}, config)
+
+
+def test_robot_diagnostics_matches_idle_gate():
+    idle = {
+        "mainState": "IDLE",
+        "velocity": 0,
+        "angularVelocity": 12,
+    }
+    moving = {**idle, "velocity": 12}
+    string_zero = {**idle, "velocity": "0"}
+    missing_velocity = {"mainState": "IDLE"}
+    assert CalibrationService.is_still(idle) is True
+    assert CalibrationService.is_still(string_zero) is True
+    assert CalibrationService.is_still(missing_velocity) is True
+    assert CalibrationService.robot_diagnostics(idle)["stationary"] is True
+    diag = CalibrationService.robot_diagnostics(moving)
+    assert diag["stationary"] is False
+    assert diag["blockers"][0]["field"] == "velocity"
+
+
+def test_target_matches_position_and_orientation_tolerance():
+    config = demo_config()
+    assert config.position_tolerance_mm == 50
+    assert config.orientation_tolerance_deg == 5
+    assert target_matches(
+        {"coordX": 1050, "coordY": -40, "orientation": 9040},
+        {"coordX": 1000, "coordY": 0, "orientation": 9000},
+        config,
+    )
+    # Live telemetry keeps millimetre floats and centidegree heading.
+    assert target_matches(
+        {"coordX": 147250.000, "coordY": 141015.000, "orientation": 9191},
+        {"coordX": 147250, "coordY": 141015, "orientation": 9000},
+        config,
+    )
+    assert not target_matches(
+        {"coordX": 1050.001, "coordY": 0, "orientation": 9000},
+        {"coordX": 1000, "coordY": 0, "orientation": 9000},
+        config,
+    )
+    assert not target_matches(
+        {"coordX": 1000, "coordY": 0, "orientation": 8490},
+        {"coordX": 1000, "coordY": 0, "orientation": 9000},
+        config,
+    )
 
 
 def test_live_command_requires_correlated_success_and_post_success_state():
