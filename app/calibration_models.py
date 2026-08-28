@@ -46,14 +46,18 @@ class StationConfig(StrictModel):
     finish: Point
     approach_waypoints: list[Point] = Field(default_factory=list, max_length=50)
     exit_waypoints: list[Point] = Field(default_factory=list, max_length=50)
-    sensor_channel: int = Field(default=0, ge=0, le=3)
+    sensor_channel: Literal[1] = Field(
+        default=1, description="固定使用实际接线 ADS1115 A1（channel=1）；A0 暂不启用"
+    )
     low_height_mm: int = Field(ge=0, le=1000)
     high_height_mm: int = Field(gt=0, le=1000)
     settle_seconds: float = Field(default=2, ge=2, le=30)
     sample_window_seconds: float = Field(default=0.5, ge=0.1, le=5)
     min_samples: int = Field(default=5, ge=2, le=1000)
     max_sample_age_seconds: float = Field(default=0.2, gt=0, le=2)
-    max_spread_mm: float = Field(default=3, gt=0)
+    max_spread_mm: float = Field(
+        default=5, gt=0, description="原始采样窗口极差上限（mm），不是读数分辨率或验收公差"
+    )
     command_timeout_seconds: float = Field(default=60, ge=1, le=600)
     confirmation_timeout_seconds: float = Field(default=300, ge=5, le=1800)
     telemetry_timeout_seconds: float = Field(default=3, ge=0.2, le=30)
@@ -109,8 +113,15 @@ class StartRequest(StrictModel):
     """Explicit identity and confirmations required before any hardware motion."""
 
     config_id: str
-    identity_type: Literal["robotLabel", "robotSN"] = "robotLabel"
-    identity: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.:-]+$")
+    identity_type: Literal["robotLabel", "robotSN"] = Field(
+        default="robotLabel", description="记录标识类型；不改变 MQTT 主题后缀"
+    )
+    identity: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_.:-]+$",
+        description="直接用于 MQTT 主题的机器人 SN 或 Label，必须与机器人实际主题一致",
+    )
     mode: Literal["simulation", "live"] = "simulation"
     ground_clear_confirmed: bool = False
     robot_at_start_confirmed: bool = False

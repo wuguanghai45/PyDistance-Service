@@ -2,10 +2,12 @@
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
+  const sensorChannel = 1; // ADS1115 A1: use the hardware index, not a display ordinal.
+  const channelLabel = (channel) => Number.isInteger(channel) && channel >= 0 && channel <= 3 ? `ADS1115 A${channel}（channel=${channel}）` : "传感器通道未记录";
   const order = ["ALN", "AHN", "BHN", "BLN", "BHY", "BLY", "ALY", "AHY"];
   const points = { start: "起始点", calibration: "标定点 A", bin: "取箱点 B", storage: "存放点", finish: "完成点" };
   const process = {
-    sensor_channel: ["传感器通道（0–3）", 0, 3, 1], low_height_mm: ["低位指令 / mm", 0, 1000, 1],
+    low_height_mm: ["低位指令 / mm", 0, 1000, 1],
     high_height_mm: ["高位指令 / mm", 1, 1000, 1], settle_seconds: ["稳定等待 / s", 2, 30, 0.1],
     command_timeout_seconds: ["命令超时 / s", 1, 600, 1], velocity: ["移动速度 / mm/s", 1, 500, 1],
   };
@@ -22,10 +24,8 @@
   }
 
   function message(text, error = false) { $("message").textContent = text; $("message").className = error ? "error" : ""; }
-  const token = () => $("token").value;
   async function api(path, body, method = body === undefined ? "GET" : "POST") {
     const headers = { "Content-Type": "application/json" };
-    if (token()) headers.Authorization = `Bearer ${token()}`;
     const response = await fetch(`/api/v1/calibration${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     if (!response.ok) {
       const detail = await response.json().catch(() => ({ detail: response.statusText }));
@@ -78,7 +78,7 @@
     $("separate-storage").checked = !!recipe.storage; storageVisibility();
     Object.keys(process).forEach((key) => { $(key).value = recipe[key]; });
     const advanced = structuredClone(recipe);
-    for (const key of ["name", "limits", ...Object.keys(points), ...Object.keys(process)]) delete advanced[key];
+    for (const key of ["name", "limits", "sensor_channel", ...Object.keys(points), ...Object.keys(process)]) delete advanced[key];
     $("advanced").value = JSON.stringify(advanced, null, 2);
     for (const key of order) {
       const limit = recipe.limits[key];
@@ -86,13 +86,16 @@
       $(`target-${key}`).value = limit?.target_mm ?? "";
       $(`tolerance-${key}`).value = limit?.tolerance_mm ?? "";
     }
-    dirty = !id; $("recipe-state").textContent = id ? `已保存版本 ${id.slice(0, 8)}` : "演示参数尚未保存";
+    const unsupportedChannel = recipe.sensor_channel !== sensorChannel;
+    dirty = !id || unsupportedChannel;
+    $("recipe-state").textContent = unsupportedChannel ? `旧配置：${channelLabel(recipe.sensor_channel)}。请保存为 A1（channel=1）的新版本后启动` : (id ? `已保存版本 ${id.slice(0, 8)}` : "演示参数尚未保存");
     $("config-select").value = id || ""; updateStart();
   }
   function readRecipe() {
     const value = JSON.parse($("advanced").value);
     if (!value || Array.isArray(value) || typeof value !== "object") throw new Error("高级参数必须为 JSON 对象");
     value.name = $("config-name").value.trim();
+    value.sensor_channel = sensorChannel;
     for (const key of Object.keys(points)) {
       value[key] = { code: $(`${key}-code`).value.trim(), x: Number($(`${key}-x`).value), y: Number($(`${key}-y`).value), orientation: Number($(`${key}-orientation`).value) };
     }
@@ -141,7 +144,7 @@
     currentTask = task;
     $("task-title").textContent = task.step_title;
     $("task-status").textContent = labels[task.status] || task.status;
-    $("task-meta").textContent = `${task.mode === "simulation" ? "模拟数据 · 不可用于实机验收" : "实机数据"} / ${task.robot_label} / ${task.id}`;
+    $("task-meta").textContent = `${task.mode === "simulation" ? "模拟数据 · 不可用于实机验收" : "实机数据"} / ${channelLabel(task.baseline.channel)} / ${task.robot_label} / ${task.id}`;
     $("progress").value = Object.keys(task.measurements).length;
     $("baseline").textContent = `${number(task.baseline.distance_mm)} mm`;
     $("verdict").textContent = labels[task.verdict] || task.verdict;
@@ -182,14 +185,13 @@
   }
   function connectTask(id, gen) {
     const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/calibration/${id}`); taskSocket = ws;
-    ws.onopen = () => ws.send(JSON.stringify({ token: token() }));
     ws.onmessage = (event) => {
       if (gen !== generation) return;
       const data = JSON.parse(event.data); renderTask(data.task); renderEvents(data.events);
     };
     ws.onclose = (event) => {
       if (stopped || gen !== generation) return;
-      if (event.code === 1008) { message("任务连接被拒绝，请检查操作令牌。", true); return; }
+      if (event.code === 1008) { message("任务连接被拒绝，请检查访问来源和任务是否存在。", true); return; }
       if (currentTask && !["RUNNING", "CANCELLING"].includes(currentTask.status)) { refreshHistory().catch((e) => message(e.message, true)); return; }
       reconnect = setTimeout(() => connectTask(id, gen), 1500);
     };
@@ -240,7 +242,10 @@
   }
   function connectSensor() {
     sensorSocket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/distance`);
-    sensorSocket.onmessage = (event) => { const data = JSON.parse(event.data); $("sensor-live").textContent = "物理传感器（独立实时数据）：" + data.channels.map((c) => `通道 ${c.channel} ${c.status === "Normal" ? `${number(c.distance_mm)} mm` : c.status}`).join(" / "); };
+    sensorSocket.onmessage = (event) => {
+      const data = JSON.parse(event.data), channel = data.channels.find((c) => c.channel === sensorChannel);
+      $("sensor-live").textContent = `物理传感器 · ${channelLabel(sensorChannel)}：` + (channel ? (channel.status === "Normal" ? `${number(channel.distance_mm)} mm` : channel.status) : "未配置或无数据");
+    };
     sensorSocket.onclose = () => { $("sensor-live").textContent = "物理传感器连接已断开"; if (!stopped) setTimeout(connectSensor, 3000); };
   }
   window.addEventListener("beforeunload", () => { stopped = true; clearInterval(clock); clearTimeout(reconnect); taskSocket?.close(); sensorSocket?.close(); });

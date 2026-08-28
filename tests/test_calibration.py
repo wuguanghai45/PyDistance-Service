@@ -37,7 +37,8 @@ class FakeSensor:
         self.calls += 1
         if self.failure:
             raise ValueError(self.failure)
-        return CalibrationService._sim_reading(0, 0 if self.calls == 1 else 250)
+        assert args[0] == 1
+        return CalibrationService._sim_reading(args[0], 0 if self.calls == 1 else 250)
 
 
 @pytest.fixture
@@ -49,9 +50,7 @@ def setup(tmp_path):
     settings = Settings(
         _env_file=None,
         CALIBRATION_LIVE_ENABLED=False,
-        CALIBRATION_API_TOKEN="",
         MQTT_HOST="",
-        ROBOT_SN_MAP={},
     )
     sensor = FakeSensor()
     svc = CalibrationService(store, sensor, settings)
@@ -74,6 +73,8 @@ def test_full_simulation_order_motion_and_precision(setup):
         task = svc.snapshot(started["id"])
         assert task["status"] == "COMPLETED", task["error"]
         assert tuple(task["measurements"]) == MEASUREMENT_ORDER
+        assert task["baseline"]["channel"] == 1
+        assert all(m["reading"]["channel"] == 1 for m in task["measurements"].values())
         assert [m["height_mm"] for m in task["measurements"].values()] == [
             250,
             350,
@@ -165,19 +166,60 @@ def test_mid_run_cancel_preserves_partial_records(setup):
     asyncio.run(run())
 
 
-def test_live_gates_and_unknown_sn(setup):
-    """No baseline or connection occurs with incomplete authorization or guessed SN."""
+def test_live_gates_still_require_enablement_and_safety_confirmations(setup):
+    """Removing access credentials does not enable live motion or skip safety checks."""
 
     async def run():
         svc, record, _, sensor = setup
         with pytest.raises(ValueError, match="未启用"):
             await svc.start(request(record, mode="live"))
-        with pytest.raises(ValueError, match="映射"):
-            await svc.start(request(record, identity_type="robotSN"))
+        svc.settings.CALIBRATION_LIVE_ENABLED = True
+        with pytest.raises(ValueError, match="MQTT_HOST"):
+            await svc.start(request(record, mode="live"))
+        svc.settings.MQTT_HOST = "not-used.invalid"
+        with pytest.raises(ValueError, match="必须确认"):
+            await svc.start(request(record, mode="live"))
         assert sensor.calls == 0
         assert svc.store.owner() is None
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("identity_type", ["robotSN", "robotLabel"])
+def test_robot_identifiers_pass_through_without_mapping(setup, identity_type):
+    """Both input types use the unchanged identifier for MQTT command labels."""
+
+    async def run():
+        svc, record, _, sensor = setup
+        identifier = "ANT-SN.001"
+        task = await svc.start(
+            StartRequest(
+                config_id=record["id"], identity=identifier, identity_type=identity_type
+            )
+        )
+        await svc.worker
+        final = svc.snapshot(task["id"])
+        assert final["status"] == "COMPLETED", final["error"]
+        assert final["robot_label"] == final["identity"] == identifier
+        assert final["identity_type"] == identity_type
+        commands = [
+            event["data"]["payload"]
+            for event in svc.store.events(task["id"])
+            if event["kind"] == "command_sent"
+        ]
+        assert commands and all(
+            c["robotCommandSetLabel"].startswith(identifier + "-CAL-") for c in commands
+        )
+        assert sensor.calls == 0
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("identity", ["robot/#", "robot+", "robot/other", "robot\n"])
+def test_identifier_still_rejects_mqtt_topic_injection(identity):
+    """Direct identifiers cannot introduce wildcards or another topic level."""
+    with pytest.raises(ValidationError):
+        StartRequest(config_id="config", identity=identity, identity_type="robotSN")
 
 
 def test_baseline_failure_never_claims_or_moves_station(setup):
@@ -186,7 +228,6 @@ def test_baseline_failure_never_claims_or_moves_station(setup):
     async def run():
         svc, record, _, sensor = setup
         svc.settings.CALIBRATION_LIVE_ENABLED = True
-        svc.settings.CALIBRATION_API_TOKEN = "test-only"
         svc.settings.MQTT_HOST = "not-used.invalid"
         sensor.failure = "基准过期"
         with pytest.raises(ValueError, match="基准过期"):
@@ -217,7 +258,6 @@ def test_failed_live_task_requires_explicit_release(setup):
     async def run():
         svc, record, _, _ = setup
         svc.settings.CALIBRATION_LIVE_ENABLED = True
-        svc.settings.CALIBRATION_API_TOKEN = "test-only"
         svc.settings.MQTT_HOST = "not-used.invalid"
         svc.robot_factory = BrokenRobot
         task = await svc.start(
@@ -245,7 +285,6 @@ def test_failed_live_task_requires_explicit_release(setup):
 def enable_fake_live(svc):
     """Enable live orchestration with an injected robot, never the real MQTT adapter."""
     svc.settings.CALIBRATION_LIVE_ENABLED = True
-    svc.settings.CALIBRATION_API_TOKEN = "test-only"
     svc.settings.MQTT_HOST = "not-used.invalid"
     svc.robot_factory = SimRobot
 
@@ -658,20 +697,146 @@ def make_sensor(samples, failures=0):
     sensor = object.__new__(SensorService)
     sensor.__init__()
     sensor._ads_online = True
-    state = _ChannelState(0, 100)
+    state = _ChannelState(1, 100)
     state.samples = deque(samples, maxlen=100)
     state.consecutive_failures = failures
-    sensor._states = {0: state}
+    sensor._states = {1: state}
     return sensor
+
+
+def test_default_sampling_and_calibration_use_a1(monkeypatch):
+    """Actual wiring and API index both identify A1; A0 is unused by default."""
+    monkeypatch.delenv("ADS_CHANNELS", raising=False)
+    settings = Settings(_env_file=None)
+    assert settings.ADS_CHANNELS == [1]
+    assert demo_config().sensor_channel == 1
+    assert demo_config().max_spread_mm == 5
+    monkeypatch.setattr("app.sensor.settings", settings)
+    sensor = SensorService()
+    assert set(sensor._states) == {1}
+
+
+@pytest.mark.parametrize("channel", [0, 2, 3])
+def test_legacy_other_channel_recipe_rejected_before_start(setup, channel):
+    """Preserve old recipes but reject wrong-channel starts before reading or motion."""
+    async def run():
+        svc, _, config, sensor = setup
+        legacy = config.model_dump()
+        legacy["sensor_channel"] = channel
+        record = svc.store.save_config(legacy)
+        with pytest.raises(ValidationError, match="sensor_channel"):
+            await svc.start(request(record))
+        assert sensor.calls == 0
+        assert svc.worker is None
+        assert svc.store.owner() is None
+        assert svc.store.config(record["id"])["config"]["sensor_channel"] == channel
+
+    asyncio.run(run())
+
+
+def test_reading_uses_a1_when_a0_is_unstable():
+    """Unused A0 noise must never enter the A1 baseline or measurement window."""
+    now = time.monotonic()
+    samples = [(now - 0.01 * i, 1.001) for i in range(5, 0, -1)]
+    sensor = make_sensor(samples)
+    unused = _ChannelState(0, 100)
+    unused.samples = deque([(now - 0.01 * i, float(i)) for i in range(5, 0, -1)])
+    sensor._states[0] = unused
+    svc = CalibrationService(None, sensor, Settings(_env_file=None))
+    reading = svc._reading(demo_config(), now - 0.1)
+    assert reading["channel"] == 1
+    assert reading["spread_mm"] == 0
+
+
+def test_missing_a1_does_not_fall_back_to_a0():
+    """A healthy A0 must not substitute for a missing wired A1 sensor."""
+    now = time.monotonic()
+    sensor = make_sensor([(now - 0.01 * i, 1.001) for i in range(5, 0, -1)])
+    state = sensor._states.pop(1)
+    sensor._states[0] = state
+    svc = CalibrationService(None, sensor, Settings(_env_file=None))
+    with pytest.raises(ValueError, match="通道未配置"):
+        svc._reading(demo_config(), now - 0.1)
+
+
+def test_raw_spread_is_checked_before_filtering(monkeypatch):
+    """Reproduce a 5.409 mm raw spread; no filter may conceal the failing window."""
+    now = time.monotonic()
+    # Identity conversion isolates the stability rule from voltage calibration.
+    monkeypatch.setattr("app.sensor.voltage_to_distance", lambda v: (v, "Normal"))
+    monkeypatch.setattr("app.sensor.apply_filter", lambda _: pytest.fail("filter called before quality check"))
+    samples = [(now - 0.01 * i, 1.0) for i in range(5, 0, -1)]
+    samples[-1] = (now - 0.01, 6.409)
+    with pytest.raises(ValueError, match="测量不稳定：窗口极差 5.409 mm"):
+        make_sensor(samples).calibration_reading(1, now - 0.1, 0.5, 5, 0.2, 3)
+
+
+@pytest.mark.parametrize("spread,accepted", [(3.632, True), (5.0, True), (5.001, False), (5.409, False)])
+def test_default_five_mm_spread_boundary(monkeypatch, spread, accepted):
+    """The default allows at most 5 mm spread without rounding the raw distances."""
+    now = time.monotonic()
+    monkeypatch.setattr("app.sensor.voltage_to_distance", lambda v: (v, "Normal"))
+    samples = [(now - 0.01 * i, 1.0) for i in range(5, 0, -1)]
+    samples[-1] = (now - 0.01, 1.0 + spread)
+    svc = CalibrationService(None, make_sensor(samples), Settings(_env_file=None))
+    if accepted:
+        reading = svc._reading(demo_config(), now - 0.1)
+        assert reading["spread_mm"] == pytest.approx(spread)
+        assert reading["voltages"][-1] == 1.0 + spread
+    else:
+        with pytest.raises(ValueError, match="测量不稳定"):
+            svc._reading(demo_config(), now - 0.1)
 
 
 def test_precision_sensor_filters_out_pre_settle_samples():
     now = time.monotonic()
     samples = [(now - 0.4, 9)] + [(now - 0.01 * i, 1.001) for i in range(5, 0, -1)]
-    reading = make_sensor(samples).calibration_reading(0, now - 0.1, 0.5, 5, 0.2, 3)
+    reading = make_sensor(samples).calibration_reading(1, now - 0.1, 0.5, 5, 0.2, 3)
     assert reading["distance_mm"] == pytest.approx(295.245)
     assert reading["samples_in_window"] == 5
     assert reading["voltages"] == [1.001] * 5
+
+
+def test_unstable_window_logs_every_selected_sample(monkeypatch, caplog):
+    """Print all 25 failing-window values, excluding old samples and other channels."""
+    now = time.monotonic()
+    values = [1.0 + (i % 3) * 0.1 for i in range(24)] + [4.632]
+    selected = [(now - (25 - i) * 0.01, v) for i, v in enumerate(values)]
+    sensor = make_sensor([(now - 0.8, 999.0)] + selected)
+    other = _ChannelState(0, 100)
+    other.samples.append((now - 0.01, 888.0))
+    sensor._states[0] = other
+    monkeypatch.setattr("app.sensor.voltage_to_distance", lambda v: (v, "Normal"))
+    with caplog.at_level("WARNING", logger="app.sensor"):
+        with pytest.raises(ValueError, match="窗口极差 3.632 mm"):
+            sensor.calibration_reading(1, now - 0.5, 0.5, 5, 0.2, 3)
+    prefix = "CALIBRATION_UNSTABLE_WINDOW "
+    records = [r.message for r in caplog.records if r.message.startswith(prefix)]
+    assert len(records) == 1
+    diagnostic = json.loads(records[0][len(prefix):])
+    assert diagnostic["channel"] == 1
+    assert diagnostic["hardware_channel"] == "ADS1115 A1"
+    assert diagnostic["sample_count"] == len(values)
+    assert diagnostic["quality_check"] == "before_filtering"
+    assert diagnostic["min_distance_mm"] == min(values)
+    assert diagnostic["max_distance_mm"] == max(values)
+    assert diagnostic["spread_mm"] == pytest.approx(3.632)
+    assert diagnostic["max_spread_mm"] == 3
+    assert [s["index"] for s in diagnostic["samples"]] == list(range(1, 26))
+    assert [s["sensor_voltage_v"] for s in diagnostic["samples"]] == values
+    assert [s["distance_mm"] for s in diagnostic["samples"]] == values
+    assert [s["offset_seconds"] for s in diagnostic["samples"]] == [
+        ts - selected[0][0] for ts, _ in selected
+    ]
+
+
+def test_stable_window_does_not_log_unstable_diagnostics(caplog):
+    """A passing calibration window must not produce a failure dump."""
+    now = time.monotonic()
+    sensor = make_sensor([(now - 0.01 * i, 1.001) for i in range(5, 0, -1)])
+    with caplog.at_level("WARNING", logger="app.sensor"):
+        sensor.calibration_reading(1, now - 0.1, 0.5, 5, 0.2, 3)
+    assert not any("CALIBRATION_UNSTABLE_WINDOW" in r.message for r in caplog.records)
 
 
 @pytest.mark.parametrize(
@@ -690,17 +855,16 @@ def test_sensor_rejects_bad_windows(kind):
         samples[-1] = (now, 2)
     sensor = make_sensor(samples, failures=1 if kind == "failure" else 0)
     with pytest.raises(ValueError):
-        sensor.calibration_reading(0, now - 1, 0.5, 5, 0.2, 3)
+        sensor.calibration_reading(1, now - 1, 0.5, 5, 0.2, 3)
 
 
-def test_api_auth_websocket_result_export_and_missing_task(tmp_path):
+def test_api_without_token_and_websocket_without_handshake(tmp_path):
     @asynccontextmanager
     async def lifespan(app):
         store = Store(str(tmp_path / "api.sqlite3"))
         settings = Settings(
             _env_file=None,
             CALIBRATION_LIVE_ENABLED=False,
-            CALIBRATION_API_TOKEN="test-token",
             MQTT_HOST="",
         )
         app.state.calibration = CalibrationService(store, FakeSensor(), settings)
@@ -716,48 +880,39 @@ def test_api_auth_websocket_result_export_and_missing_task(tmp_path):
     app.include_router(ws_router)
     with TestClient(app) as client:
         record = app.state.record
-        assert client.get("/api/v1/calibration/configs").status_code == 401
-        headers = {"Authorization": "Bearer test-token"}
-        assert (
-            client.get("/api/v1/calibration/configs", headers=headers).status_code
-            == 200
-        )
+        assert client.get("/api/v1/calibration/configs").status_code == 200
+        assert not client.get("/api/v1/calibration/system").json()["live_enabled"]
+        app.state.calibration.settings.CALIBRATION_LIVE_ENABLED = True
+        app.state.calibration.settings.MQTT_HOST = "not-used.invalid"
+        assert client.get("/api/v1/calibration/system").json()["live_enabled"]
         assert (
             client.post(
                 "/api/v1/calibration/tasks",
-                headers={**headers, "Origin": "http://evil.invalid"},
+                headers={"Origin": "http://evil.invalid"},
                 json=request(record).model_dump(),
             ).status_code
             == 403
         )
         response = client.post(
             "/api/v1/calibration/tasks",
-            headers=headers,
             json=request(record).model_dump(),
         )
         assert response.status_code == 201, response.text
         task_id = response.json()["id"]
         with client.websocket_connect(f"/ws/calibration/{task_id}") as socket:
-            socket.send_json({"token": "test-token"})
             while True:
                 item = socket.receive_json()
                 if item["task"]["status"] == "COMPLETED":
                     break
-        result = client.get(
-            f"/api/v1/calibration/tasks/{task_id}/result", headers=headers
-        ).json()
+        result = client.get(f"/api/v1/calibration/tasks/{task_id}/result").json()
         assert len(result["measurements"]) == 8
-        csv = client.get(f"/api/v1/calibration/tasks/{task_id}/export", headers=headers)
+        csv = client.get(f"/api/v1/calibration/tasks/{task_id}/export")
         assert "simulation,COMPLETED" in csv.text
         assert "ALN" in csv.text and "BHY" in csv.text
-        assert (
-            client.get("/api/v1/calibration/tasks/missing", headers=headers).status_code
-            == 404
-        )
+        assert client.get("/api/v1/calibration/tasks/missing").status_code == 404
         assert (
             client.post(
                 f"/api/v1/calibration/tasks/{task_id}/confirm",
-                headers=headers,
                 json={"step": "CONFIRM_PICKUP", "confirmed": True},
             ).status_code
             == 422
@@ -765,7 +920,6 @@ def test_api_auth_websocket_result_export_and_missing_task(tmp_path):
         assert (
             client.post(
                 f"/api/v1/calibration/tasks/{task_id}/release",
-                headers=headers,
                 json={"robot_stopped_and_station_safe": False},
             ).status_code
             == 422

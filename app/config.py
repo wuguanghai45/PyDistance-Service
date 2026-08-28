@@ -28,7 +28,8 @@ class Settings(BaseSettings):
     # --- ADS1115 hardware configuration ---
     # Hex string (e.g. "0x48") or integer are both accepted via validator.
     I2C_ADDRESS: int = 0x48
-    ADS_CHANNELS: list[int] = Field(default_factory=lambda: [0, 1])
+    # The installed sensor is wired to ADS1115 A1 (API index 1).
+    ADS_CHANNELS: list[int] = Field(default_factory=lambda: [1])
     ADS_GAIN: float = 2 / 3
     ADS_DATA_RATE: int = 250
 
@@ -46,17 +47,15 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "logs/service.log"
 
-    # Live control is opt-in and requires a separate operator API token.
+    # Live control is opt-in; access is controlled by the deployment network.
     CALIBRATION_DB: str = "data/calibration.sqlite3"
     CALIBRATION_LIVE_ENABLED: bool = False
-    CALIBRATION_API_TOKEN: str = ""
     MQTT_HOST: str = ""
     MQTT_PORT: int = 1883
     MQTT_USERNAME: str = ""
     MQTT_PASSWORD: str = ""
     MQTT_TLS: bool = False
     MQTT_CA_FILE: str | None = None
-    ROBOT_SN_MAP: dict[str, str] = Field(default_factory=dict)
 
     # Allow I2C_ADDRESS to be supplied as "0x48" string in .env.
     @field_validator("I2C_ADDRESS", mode="before")

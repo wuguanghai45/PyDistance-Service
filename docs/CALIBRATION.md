@@ -8,7 +8,9 @@
 - H/L：高位/低位，指令高度在工位配置中指定。
 - Y/N：负载/空载。
 - 标定高度：`本任务地面基准距离 - 当前激光距离`，单位 mm。
-- 一次任务使用同一个测量通道和固定地面基准；不能中途更换基准。
+- 地面基准和八项高度固定使用实际接线的 ADS1115 A1（`sensor_channel=1`），A0 暂不启用；不能中途更换基准。
+
+通道名称始终对应硬件端子：A0 对应 `channel=0`，A1 对应 `channel=1`，不使用从 1 开始的显示编号。采集配置使用 `ADS_CHANNELS=[1]`。已有部署需检查 `.env` 的覆盖值，修改后在工位空闲、安全时重启服务。旧版本中使用其他通道的工位配置不能再启动；网页会提示保存为 A1 的新版本，历史记录保持原样，任务详情按记录中的实际通道显示。
 
 ## 本地模拟
 
@@ -26,28 +28,26 @@
 
 ## 实机启用前必须完成
 
-### 1. 设置服务器连接与权限
+### 1. 设置服务器连接
 
 在 `.env` 中配置（示意，不含实际凭据）：
 
 ```dotenv
 CALIBRATION_LIVE_ENABLED=true
-CALIBRATION_API_TOKEN=replace-with-a-long-random-operator-token
 MQTT_HOST=your-broker-host
 MQTT_PORT=8883
 MQTT_USERNAME=your-user
 MQTT_PASSWORD=your-password
 MQTT_TLS=true
-ROBOT_SN_MAP={"YOUR-SN":"YOUR-ROBOT-LABEL"}
 ```
 
 TLS 默认验证服务器证书及主机名，可通过 `MQTT_CA_FILE` 指定工厂 CA。若现场明确使用非 TLS 的隔离网络 broker，则配置相应端口与 `MQTT_TLS=false`。不会从参考项目复制凭据。
 
-设置操作令牌后，所有标定 HTTP API 都要求 `Authorization: Bearer <token>`。在网页输入令牌后点击“连接服务”。令牌只保留在本页，不写入浏览器存储或 WebSocket URL。WebSocket 在连接后的第一帧提交令牌，5 秒内未认证会断开。
+标定网页和 HTTP API 无需操作令牌，WebSocket 连接后立即推送，无需认证首帧。网页会自动连接服务，也可以点击“连接服务”重新连接。
 
-网页实机选项只有在 LIVE_ENABLED、令牌和 broker host 均已配置时才启用。部署到网络时应使用 HTTPS/可信反向代理、防火墙和受控工厂网络，避免令牌明文传输。原 `/distance` 和 `/ws/distance` 仍保持原有只读行为。
+网页实机选项在 `CALIBRATION_LIVE_ENABLED=true` 且 `MQTT_HOST` 已配置时启用，每次实机启动仍需确认现场安全条件。没有应用层身份认证，能够访问服务的人即可调用标定接口；请仅部署在可信工厂网络，使用防火墙或网关限制访问，不直接暴露公网。跨站浏览器请求仍被拒绝，但这不是用户鉴权。原 `/distance` 和 `/ws/distance` 保持原有只读行为。
 
-SN 只通过服务器 `ROBOT_SN_MAP` 映射；未知 SN 返回错误，不推断其 Label。也可直接选择 robotLabel 输入。
+输入的 robotSN 或 robotLabel 原样作为 MQTT 主题后缀，例如 `robot/state/ANT001`、`robot/commandSet/create/ANT001`。识别类型仅用于记录，不进行映射。输入必须与机器人实际订阅/发布主题的标识一致；如果机器人主题使用 Label，不能填一个不同的 SN 并期望自动转换。标识继续限制为字母、数字、下划线、点、冒号和连字符，禁止 MQTT 通配符及斜线。
 
 ### 2. 确认现场测量条件
 
@@ -97,7 +97,7 @@ SN 只通过服务器 `ROBOT_SN_MAP` 映射；未知 SN 返回错误，不推断
 | sample_window_seconds | 0.5 | 稳定后采样时间 |
 | min_samples | 5 | 最少有效样本数，按实际采样率调整 |
 | max_sample_age_seconds | 0.2 | 最新样本最大年龄 |
-| max_spread_mm | 3 | 距离窗口极差上限，不稳定则失败 |
+| max_spread_mm | 5 | 原始距离窗口极差上限，超过 5 mm 则不稳定；等于 5 mm 允许通过此检查 |
 | command_timeout_seconds | 60 | 连接/命令完成/到位等待上限 |
 | confirmation_timeout_seconds | 300 | 取放箱人工或载荷反馈确认超时 |
 | telemetry_timeout_seconds | 3 | 机器人状态超过此时长视为离线 |
@@ -109,6 +109,18 @@ SN 只通过服务器 `ROBOT_SN_MAP` 映射；未知 SN 返回错误，不推断
 | scan_valid_value | true | 固件 qrCodeStatus 的有效值；按真实报文配置 |
 | scan_code_field | null | 可选扫码内容字段，例如 `scannerStatus.scannerData`；配置后核对地码内容 |
 | load_feedback_field | null | 可选载荷字段路径；必须返回 bool 或 0/1 |
+
+#### “测量不稳定：窗口极差 5.409 mm”是什么意思
+
+极差是采样窗口中原始距离的最大值减最小值，默认上限为 `max_spread_mm=5`；它不是平台高度偏差，也不是验收公差或 ADC 分辨率。极差不超过 5 mm 可通过稳定性检查（例如 3.632 mm），超过 5 mm（例如 5.409 mm）仍然拒绝。检查发生在滤波前，所以网页中经过滤波、取整的距离看起来平稳，仍可能因原始样本跳变而被拒绝。地面基准与八项测量都执行此检查，原始读数和日志仍保留浮点精度。
+
+已保存配置保留自己的阈值，不会随代码默认值自动改变。将现用配置的高级参数 `max_spread_mm` 改为 `5` 并保存新版本后，下一次任务才使用 5 mm；历史任务及配置版本保持原样。
+
+发生此错误时，服务器会以 WARNING 级别打印 `CALIBRATION_UNSTABLE_WINDOW`，后跟完整 JSON：硬件端子/API 通道、采样数量、窗口长度、最小/最大距离、实际极差、阈值，以及 `samples` 中逐个样本的序号、相对窗口首个样本的时间偏移、传感器电压和未滤波距离。`sensor_voltage_v` 是分压补偿后的传感器输出电压，不是 ADC 引脚电压。所有数值保留浮点精度，不截断样本；打印内容正是本次判定所用的窗口快照。只在标定窗口不稳定时输出，不连续打印后台采样。
+
+默认日志文件为 `logs/service.log`（可由 `LOG_FILE` 覆盖），同时输出到服务标准输出。设备上可使用 `tail -f /home/orangepi/PyDistance-Service/logs/service.log` 查看，再次报错即可获得完整窗口。升级前失败窗口未被记录，无法补打过去那次的全部样本。
+
+先确认使用实际接线的 A1（`sensor_channel=1`，`ADS_CHANNELS=[1]`），并记录报错是在点击开始采地面基准时，还是某项到位后的采样阶段。随后检查激光是否稳定照射同一测量面、光路是否被遮挡、机构和传感器支架是否仍有振动。若只发生在动作后，可评估延长 `settle_seconds`；若静止地面也持续波动，应检查信号采集、接线和传感器安装。以上属于排查方向，不能仅凭极差确定物理原因。不要仅为通过标定而放宽稳定性上限。
 
 参考项目 Ant 状态只明确读取了 `qrCodeStatus`、坐标、朝向、举升高度，没有确认载荷字段。默认按扫码状态 + 位置 + 朝向核验到位；只有配置 `scan_code_field` 后才核验实际码字符串，不宣称已经验证未提供的字段。
 
@@ -169,7 +181,7 @@ SQLite 目录需可写。Docker 部署应把 `/app/data` 作为持久卷；不�
 | POST /tasks/{id}/release | `{"robot_stopped_and_station_safe":true}`，仅终态可解锁 |
 | GET /tasks/{id}/export | 八项 CSV，未测项为 MISSING，保留模式/任务状态 |
 
-WebSocket：`/ws/calibration/{id}`，第一帧 `{"token":"操作令牌"}`，无令牌部署时仍发送 `{"token":""}`。推送任务快照和新增事件；任务终态后关闭，网页自动恢复活动任务连接。
+WebSocket：`/ws/calibration/{id}`，连接后直接推送任务快照和新增事件，不需要客户端发送首帧；任务终态后关闭，网页自动恢复活动任务连接。
 
 ## 自动化验证与实机验收
 
@@ -178,6 +190,6 @@ python -m pip install -r requirements.txt -r requirements-dev.txt
 python -m pytest -q
 ```
 
-测试全部使用内存机器人/假 MQTT 传输/假传感器，不访问实际 broker 或 I2C。覆盖顺序、位置/朝向、公差、SN 映射、鉴权、CSV、WebSocket、人工确认、并发工位锁、取消、异常、重启、命令相关性及传感器新鲜度。
+测试全部使用内存机器人/假 MQTT 传输/假传感器，不访问实际 broker 或 I2C。覆盖顺序、位置/朝向、公差、SN/Label 直接透传、主题字符校验、无令牌 API、无需首帧的 WebSocket、跨站拒绝、CSV、人工确认、并发工位锁、取消、异常、重启、命令相关性及传感器新鲜度。
 
 正式投入前仍需现场验收：先核对固件报文和单个低速动作，再空载四项，再验证取放箱及低位承重，最后完成八项闭环；测试断网、激光遮挡、取消及现场急停后的人工恢复。模拟测试不能验证机械安全、真实测量精度或固件协议兼容性。

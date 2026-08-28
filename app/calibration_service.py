@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import math
-import re
 import time
 from uuid import uuid4
 
@@ -33,20 +32,6 @@ class CalibrationService:
         self.robot = None
         self.current: dict | None = None
         self.confirmed = asyncio.Event()
-
-    def resolve_label(self, request: StartRequest) -> str:
-        """Resolve SN only through the administrator's mapping; never guess identity."""
-        if request.identity_type == "robotSN":
-            label = self.settings.ROBOT_SN_MAP.get(request.identity)
-            if not label:
-                raise ValueError(
-                    "未配置 robotSN → robotLabel 映射，请配置 ROBOT_SN_MAP 或直接输入 Label"
-                )
-        else:
-            label = request.identity
-        if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", label):
-            raise ValueError("robotLabel 含无效字符，不能作为 MQTT 主题")
-        return label
 
     def _reading(self, config: StationConfig, since: float) -> dict:
         """Collect a valid precision reading using the recipe's quality limits."""
@@ -85,15 +70,16 @@ class CalibrationService:
             config = StationConfig.model_validate(
                 self.store.config(request.config_id)["config"]
             )
-            label = self.resolve_label(request)
+            # StartRequest validates topic-safe characters. SN/Label is metadata;
+            # both are passed through unchanged as the actual MQTT identifier.
+            label = request.identity
             if request.mode == "live":
                 if (
                     not self.settings.CALIBRATION_LIVE_ENABLED
-                    or not self.settings.CALIBRATION_API_TOKEN
                     or not self.settings.MQTT_HOST
                 ):
                     raise ValueError(
-                        "实机模式未启用：需配置 LIVE_ENABLED、API_TOKEN 和 MQTT_HOST"
+                        "实机模式未启用：需配置 CALIBRATION_LIVE_ENABLED 和 MQTT_HOST"
                     )
                 if not all(
                     (

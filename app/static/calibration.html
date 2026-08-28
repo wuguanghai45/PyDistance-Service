@@ -13,7 +13,7 @@
   </header>
   <main>
     <section class="notice"><strong>安全边界</strong>　取消只停止后续调度，不是硬件急停。异常任务需确认机器人停止、料箱和工位安全后解锁。实机前请确认低位时料箱仍对平台施加载荷。</section>
-    <div class="auth-bar"><label>操作令牌 <input id="token" type="password" autocomplete="off" placeholder="仅保留在本页内存，不写入浏览器存储" /></label><button id="connect" type="button">连接服务</button><span id="system-status">连接中…</span></div>
+    <div class="service-bar"><button id="connect" type="button">连接服务</button><span id="system-status">连接中…</span></div>
     <p id="message" role="status" aria-live="polite"></p>
     <div class="layout">
       <section class="panel config-panel">
@@ -24,9 +24,10 @@
           <p class="hint">地码需明确映射到坐标（mm）；A/B 是平台前后端，不是传感器通道。标定点朝向定义为传感器对准 A 点。</p>
           <div class="table-scroll"><table class="points"><thead><tr><th>点位</th><th>地码</th><th>X / mm</th><th>Y / mm</th><th>朝向 / °</th></tr></thead><tbody id="point-fields"></tbody></table></div>
           <label class="check"><input id="separate-storage" type="checkbox" /> 使用独立的料箱存放点（默认归还至取箱点）</label>
+          <p class="hint">标定传感器：ADS1115 A1（channel=1，实际接线端子）；地面基准及八项高度均取 A1。A0（channel=0）暂不启用。界面直接使用硬件名称，不再使用“通道 1 / 通道 2”的顺序编号。</p>
           <div class="fields" id="process-fields"></div>
           <details><summary>八项验收标准（未配置时只记录，不判定合格）</summary><div class="table-scroll"><table><thead><tr><th>启用</th><th>测量项</th><th>目标高度 / mm</th><th>允许偏差 / mm</th></tr></thead><tbody id="limit-fields"></tbody></table></div></details>
-          <details><summary>路线、反馈与高级参数</summary><p class="hint">approach_waypoints / exit_waypoints 为有序地码点列表。取箱、返回、归还为已确认的直线路段。载荷字段缺省时取放箱均需人工确认；不猜测 SN、扫码内容或载荷字段。</p><label>高级配置 JSON <textarea id="advanced" rows="12" spellcheck="false"></textarea></label></details>
+          <details><summary>路线、反馈与高级参数</summary><p class="hint">approach_waypoints / exit_waypoints 为有序地码点列表。取箱、返回、归还为已确认的直线路段。载荷字段缺省时取放箱均需人工确认；不猜测扫码内容或载荷字段。</p><label>高级配置 JSON <textarea id="advanced" rows="12" spellcheck="false"></textarea></label></details>
           <div class="actions"><button type="submit" id="save-config">保存新版本</button><span id="recipe-state">未保存</span></div>
         </form>
       </section>
@@ -34,7 +35,8 @@
         <section class="panel">
           <div class="section-heading"><div><span class="eyebrow">02 / RUN</span><h2>启动标定</h2></div><span class="pill" id="mode-badge">模拟模式</span></div>
           <form id="start-form">
-            <div class="fields"><label>识别类型 <select id="identity-type"><option value="robotLabel">robotLabel</option><option value="robotSN">robotSN（需服务端映射）</option></select></label><label>机器人标识 <input id="identity" required pattern="[A-Za-z0-9_.:\-]+" placeholder="输入 robotLabel 或 robotSN" /></label><label>运行模式 <select id="mode"><option value="simulation">模拟 · 不连接机器人</option><option id="live-option" value="live" disabled>实机 · MQTT 控制</option></select></label></div>
+            <div class="fields"><label>识别类型 <select id="identity-type"><option value="robotLabel">robotLabel</option><option value="robotSN">robotSN</option></select></label><label>机器人标识 <input id="identity" required pattern="[A-Za-z0-9_.:\-]+" placeholder="输入 robotLabel 或 robotSN" /></label><label>运行模式 <select id="mode"><option value="simulation">模拟 · 不连接机器人</option><option id="live-option" value="live" disabled>实机 · MQTT 控制</option></select></label></div>
+            <p class="hint">输入值直接用于 robot/state/{标识} 等 MQTT 主题，必须与机器人实际使用的标识一致。</p>
             <div id="live-checks" hidden>
               <label class="check"><input id="ground-clear" type="checkbox" /> 光路照射地面，无遮挡，可以记录地面基准</label>
               <label class="check"><input id="robot-at-start" type="checkbox" /> 机器人空载、位于配置的起始地码和朝向</label>

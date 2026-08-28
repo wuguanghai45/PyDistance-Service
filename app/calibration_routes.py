@@ -1,10 +1,9 @@
-"""Authenticated calibration HTTP APIs and live task streaming."""
+"""Calibration HTTP APIs and immediate task streaming for trusted station networks."""
 
 from __future__ import annotations
 
 import asyncio
 import csv
-import hmac
 import io
 
 from fastapi import (
@@ -34,18 +33,8 @@ def service(request: Request) -> CalibrationService:
     return request.app.state.calibration
 
 
-def token_valid(expected: str, authorization: str) -> bool:
-    """Check a bearer token with timing-resistant comparison."""
-    return not expected or hmac.compare_digest(
-        authorization.encode(), ("Bearer " + expected).encode()
-    )
-
-
-def authorize(request: Request) -> None:
-    """Protect both mutations and records whenever the operator token is configured."""
-    expected = request.app.state.calibration.settings.CALIBRATION_API_TOKEN
-    if not token_valid(expected, request.headers.get("authorization", "")):
-        raise HTTPException(401, "需要标定操作令牌")
+def check_origin(request: Request) -> None:
+    """Reject cross-site browser requests without requiring application credentials."""
     origin = request.headers.get("origin")
     if origin and origin != str(request.base_url).rstrip("/"):
         raise HTTPException(403, "禁止跨站操作标定工位")
@@ -54,7 +43,7 @@ def authorize(request: Request) -> None:
 router = APIRouter(
     prefix="/api/v1/calibration",
     tags=["calibration"],
-    dependencies=[Depends(authorize)],
+    dependencies=[Depends(check_origin)],
 )
 ws_router = APIRouter()
 
@@ -68,12 +57,10 @@ def translate_error(exc: Exception) -> HTTPException:
 
 @router.get("/system")
 async def system_info(svc: CalibrationService = Depends(service)) -> dict:
-    """Expose readiness without leaking MQTT credentials or identity mappings."""
+    """Expose readiness without returning MQTT credentials."""
     s = svc.settings
     return {
-        "live_enabled": bool(
-            s.CALIBRATION_LIVE_ENABLED and s.CALIBRATION_API_TOKEN and s.MQTT_HOST
-        ),
+        "live_enabled": bool(s.CALIBRATION_LIVE_ENABLED and s.MQTT_HOST),
         "station_owner": svc.store.owner(),
         "demo_config": demo_config().model_dump(),
         "measurement_order": ["ALN", "AHN", "BHN", "BLN", "BHY", "BLY", "ALY", "AHY"],
@@ -264,7 +251,7 @@ async def export(task_id: str, svc: CalibrationService = Depends(service)) -> Re
 
 @ws_router.websocket("/ws/calibration/{task_id}")
 async def stream_task(websocket: WebSocket, task_id: str) -> None:
-    """Authenticate via first frame (no URL token) and stream snapshots/audit updates."""
+    """Immediately stream task snapshots and audit events; no client handshake needed."""
     svc = websocket.app.state.calibration
     origin = websocket.headers.get("origin")
     if origin and origin.removeprefix("https://").removeprefix(
@@ -274,16 +261,6 @@ async def stream_task(websocket: WebSocket, task_id: str) -> None:
         return
     await websocket.accept()
     try:
-        auth = await asyncio.wait_for(websocket.receive_json(), timeout=5)
-        if (
-            not isinstance(auth, dict)
-            or not isinstance(auth.get("token", ""), str)
-            or not token_valid(
-                svc.settings.CALIBRATION_API_TOKEN, "Bearer " + auth.get("token", "")
-            )
-        ):
-            await websocket.close(code=1008)
-            return
         cursor = 0
         while True:
             snapshot = svc.snapshot(task_id)
@@ -295,7 +272,7 @@ async def stream_task(websocket: WebSocket, task_id: str) -> None:
                 await websocket.close(code=1000)
                 return
             await asyncio.sleep(0.2)
-    except (WebSocketDisconnect, asyncio.TimeoutError):
+    except WebSocketDisconnect:
         return
     except (ValueError, KeyError):
         await websocket.close(code=1008)

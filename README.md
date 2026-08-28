@@ -2,12 +2,12 @@
 
 基于 FastAPI 的轻量级 Web 服务，通过 I2C 总线实时采集 **ADS1115 ADC** 数据，将 **CHG 系列激光位移传感器**（0–10V 输出）的电压转换为物理距离（mm），并通过 RESTful API 对外提供。
 
-- 双通道（A0 / A1）同时采集（可配置）
+- 当前仅采集实际接线的 ADS1115 A1（`channel=1`），A0 暂不启用
 - 高频后台采样（默认每秒 ~50 次/通道）
 - 基于 1 秒滑动窗口的鲁棒滤波（`trimmed_mean` / `median` / `mean`）
 - I2C 单例 + 异常容错 + 日志告警
 - 内置 Swagger 自动文档（`/docs`）
-- Web 仪表盘（`/`）实时显示双通道高度，WebSocket 推送
+- Web 仪表盘（`/`）实时显示 A1 距离，WebSocket 推送；界面名称与硬件端子一致
 - 可选 Docker 部署
 - 机器人八点高度标定：MQTT 控制、模拟演练、工位配置、过程记录与 CSV/JSON 导出
 
@@ -18,7 +18,7 @@
 固定测量顺序为 `ALN → AHN → BHN → BLN → 取箱 → BHY → BLY → ALY → AHY → 归还料箱 → 完成点`。
 所有高度使用本次任务的地面基准减去激光距离计算。配置未填写验收标准时只记录，不标为合格。
 
-实机默认禁用；配置 MQTT、操作令牌和现场点位后，才能显式启动实机任务。取消只停止后续命令，不等同于硬件急停。
+实机默认禁用；启用实机开关、配置 MQTT 和现场点位后，才能显式启动实机任务。机器人 SN/Label 直接用于 MQTT 主题，无需映射或操作令牌；请仅在可信工厂网络使用。取消只停止后续命令，不等同于硬件急停。
 
 完整操作、接口、安全约束和测试说明见 [高度标定指南](docs/CALIBRATION.md)。
 
@@ -77,8 +77,8 @@ PyDistance-Service/
 
 | ADS1115 | 传感器分压网络 |
 |---------|----------------|
-| A0      | 传感器 #0 经分压后的电压 |
-| A1      | 传感器 #1 经分压后的电压 |
+| A0      | 暂不启用（API 索引 `channel=0`） |
+| A1      | 当前标定传感器经分压后的电压（API 索引 `channel=1`） |
 | VDD     | 3.3V / 5V |
 | GND     | GND |
 | SCL/SDA | 主机 I2C |
@@ -169,7 +169,7 @@ sudo ./scripts/uninstall-autostart.sh
 
 ## Web 仪表盘
 
-启动服务后，在浏览器访问根路径即可查看双通道实时高度：
+启动服务后，在浏览器访问根路径即可查看 ADS1115 A1（`channel=1`）实时距离；A0（`channel=0`）显示“暂不启用”。页面直接使用硬件端子名，不按卡片顺序重新编号：
 
 - **页面**：<http://localhost:8000/>
 - **WebSocket**：`ws://localhost:8000/ws/distance`（推送 JSON，结构与 `GET /api/v1/distance` 相同）
@@ -190,17 +190,9 @@ sudo ./scripts/uninstall-autostart.sh
   "timestamp": "2026-05-14T08:08:22.123Z",
   "channels": [
     {
-      "channel": 0,
+      "channel": 1,
       "distance_mm": 1250,
       "raw_voltage": 5.023,
-      "samples_in_window": 48,
-      "status": "Normal",
-      "unit": "mm"
-    },
-    {
-      "channel": 1,
-      "distance_mm": 980,
-      "raw_voltage": 3.945,
       "samples_in_window": 48,
       "status": "Normal",
       "unit": "mm"
@@ -223,7 +215,6 @@ sudo ./scripts/uninstall-autostart.sh
   "sensor_online": true,
   "i2c_address": "0x48",
   "channels": [
-    {"channel": 0, "consecutive_failures": 0, "last_status": "Normal", "samples_in_window": 48},
     {"channel": 1, "consecutive_failures": 0, "last_status": "Normal", "samples_in_window": 48}
   ],
   "total_rounds": 12345,
@@ -251,7 +242,7 @@ sudo ./scripts/uninstall-autostart.sh
 | `V_MAX` / `V_ERROR` | 10.0 / 10.1 | 满量程电压 / 超程阈值 |
 | `DIVIDER_RATIO` | 1.682 | 分压补偿系数 |
 | `I2C_ADDRESS` | 0x48 | ADS1115 地址 |
-| `ADS_CHANNELS` | `[0,1]` | 采集通道列表（JSON 数组） |
+| `ADS_CHANNELS` | `[1]` | 当前仅采集实际接线的 A1；已有部署需将 `.env` 中的旧值改为 `[1]` 并重启 |
 | `ADS_DATA_RATE` | 250 | ADS1115 SPS：8/16/32/64/128/250/475/860 |
 | `SAMPLE_INTERVAL` | 0.02 | 一轮采样周期（秒） |
 | `WINDOW_SECONDS` | 1.0 | 滤波窗口长度（秒） |

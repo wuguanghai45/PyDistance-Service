@@ -9,6 +9,7 @@ only ever touch in-memory state.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections import deque
@@ -253,7 +254,11 @@ class SensorService:
         """Read fresh, full-precision samples acquired after an action settled.
 
         Reject partial hardware failures, stale samples, any out-of-range input,
-        and unstable windows. Existing display APIs retain whole-mm formatting.
+        and unstable windows. Before rejecting an unstable window, log every
+        selected sample at full precision, with its time offset, divider-
+        compensated sensor voltage and unfiltered distance. The diagnostic
+        uses the same locked snapshot as the spread check, not a later read.
+        Existing display APIs retain whole-mm formatting.
         """
         now = time.monotonic()
         with self._state_lock:
@@ -269,6 +274,41 @@ class SensorService:
             raise ValueError("标定窗口包含超量程数据")
         spread = max(d for d, _ in distances) - min(d for d, _ in distances)
         if spread > max_spread:
+            # Log only failed calibration windows, not every background poll.
+            # JSON keeps all values without rounding, trimming or abbreviating.
+            diagnostic = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "channel": channel,
+                "hardware_channel": f"ADS1115 A{channel}",
+                "sample_count": len(samples),
+                "window_seconds": window_seconds,
+                "sample_age_seconds": now - samples[-1][0],
+                "min_distance_mm": min(d for d, _ in distances),
+                "max_distance_mm": max(d for d, _ in distances),
+                "spread_mm": spread,
+                "max_spread_mm": max_spread,
+                "filter_method": settings.FILTER_METHOD,
+                "quality_check": "before_filtering",
+                "divider_ratio": settings.DIVIDER_RATIO,
+                "d_min_mm": settings.D_MIN,
+                "d_max_mm": settings.D_MAX,
+                "v_max": settings.V_MAX,
+                "samples": [
+                    {
+                        "index": index,
+                        "offset_seconds": ts - samples[0][0],
+                        "sensor_voltage_v": voltage,
+                        "distance_mm": distance,
+                    }
+                    for index, ((ts, voltage), (distance, _)) in enumerate(
+                        zip(samples, distances), start=1
+                    )
+                ],
+            }
+            logger.warning(
+                "CALIBRATION_UNSTABLE_WINDOW %s",
+                json.dumps(diagnostic, ensure_ascii=False),
+            )
             raise ValueError(f"测量不稳定：窗口极差 {spread:.3f} mm")
         volts = [v for _, v in samples]
         filtered_v = apply_filter(volts)

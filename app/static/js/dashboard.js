@@ -6,13 +6,6 @@
   const RECONNECT_MAX_MS = 5000;
 
   const CHANNEL_DOM = {
-    0: {
-      card: document.getElementById("card-ch0"),
-      value: document.getElementById("value-ch0"),
-      status: document.getElementById("status-ch0"),
-      voltage: document.getElementById("voltage-ch0"),
-      samples: document.getElementById("samples-ch0"),
-    },
     1: {
       card: document.getElementById("card-ch1"),
       value: document.getElementById("value-ch1"),
@@ -26,7 +19,7 @@
   const connectionLabel = document.getElementById("connection-label");
   const timestampEl = document.getElementById("timestamp");
 
-  const lastValues = { 0: null, 1: null };
+  const lastValues = { 1: null };
   let ws = null;
   let reconnectDelay = RECONNECT_BASE_MS;
   let reconnectTimer = null;

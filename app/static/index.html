@@ -11,7 +11,7 @@
     <header class="header">
       <div class="header__brand">
         <h1 class="header__title">PyDistance 高度监测</h1>
-        <p class="header__subtitle">实时双通道激光位移</p>
+        <p class="header__subtitle">ADS1115 A1 实时激光位移 · 名称与硬件端子一致</p>
       </div>
       <div class="header__meta">
         <a href="/calibration.html" style="color: inherit">机器人高度标定 →</a>
@@ -26,14 +26,14 @@
     <main class="grid">
       <article class="card" id="card-ch0" data-channel="0">
         <div class="card__header">
-          <h2 class="card__title">通道 1</h2>
-          <span class="badge badge--unknown" id="status-ch0">—</span>
+          <h2 class="card__title">ADS1115 A0</h2>
+          <span class="badge badge--unknown" id="status-ch0">暂不启用</span>
         </div>
         <div class="card__value-wrap">
           <span class="card__value" id="value-ch0">—</span>
           <span class="card__unit">mm</span>
         </div>
-        <p class="card__label">高度</p>
+        <p class="card__label">channel=0 · 不参与标定</p>
         <dl class="card__details">
           <div class="card__detail">
             <dt>电压</dt>
@@ -48,14 +48,14 @@
 
       <article class="card" id="card-ch1" data-channel="1">
         <div class="card__header">
-          <h2 class="card__title">通道 2</h2>
-          <span class="badge badge--unknown" id="status-ch1">—</span>
+          <h2 class="card__title">ADS1115 A1</h2>
+          <span class="badge badge--unknown" id="status-ch1">等待数据</span>
         </div>
         <div class="card__value-wrap">
           <span class="card__value" id="value-ch1">—</span>
           <span class="card__unit">mm</span>
         </div>
-        <p class="card__label">高度</p>
+        <p class="card__label">channel=1 · 标定传感器距离</p>
         <dl class="card__details">
           <div class="card__detail">
             <dt>电压</dt>
