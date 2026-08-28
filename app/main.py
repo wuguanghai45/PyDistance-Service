@@ -14,6 +14,9 @@ from app.logger import get_logger, setup_logging
 from app.routes import health_router, router as api_v1_router
 from app.sensor import sensor_service
 from app.ws_routes import router as ws_router
+from app.calibration_routes import router as calibration_router, ws_router as calibration_ws_router
+from app.calibration_service import CalibrationService
+from app.calibration_store import Store
 
 setup_logging()
 logger = get_logger(__name__)
@@ -23,12 +26,18 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     """Start/stop the background sampling thread alongside the HTTP server."""
     logger.info("Starting PyDistance-Service v%s", __version__)
-    sensor_service.start()
+    store = Store(settings.CALIBRATION_DB)
+    app.state.calibration = CalibrationService(store, sensor_service, settings)
     try:
+        sensor_service.start()
         yield
     finally:
         logger.info("Shutting down PyDistance-Service")
-        sensor_service.stop()
+        try:
+            await app.state.calibration.close()
+        finally:
+            store.close()
+            sensor_service.stop()
 
 
 app = FastAPI(
@@ -45,6 +54,8 @@ app = FastAPI(
 app.include_router(api_v1_router)
 app.include_router(health_router)
 app.include_router(ws_router)
+app.include_router(calibration_router)
+app.include_router(calibration_ws_router)
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 if _STATIC_DIR.is_dir():

@@ -246,6 +246,39 @@ class SensorService:
     # Query API (called from FastAPI handlers)
     # ------------------------------------------------------------------
 
+    def calibration_reading(
+        self, channel: int, since: float, window_seconds: float,
+        min_samples: int, max_age: float, max_spread: float,
+    ) -> dict:
+        """Read fresh, full-precision samples acquired after an action settled.
+
+        Reject partial hardware failures, stale samples, any out-of-range input,
+        and unstable windows. Existing display APIs retain whole-mm formatting.
+        """
+        now = time.monotonic()
+        with self._state_lock:
+            state = self._states.get(channel)
+            if state is None or not self._ads_online or state.consecutive_failures:
+                raise ValueError("标定传感器离线、通道未配置或采集失败")
+            samples = [(ts, v) for ts, v in state.samples
+                       if ts >= max(since, now - window_seconds)]
+        if len(samples) < min_samples or now - samples[-1][0] > max_age:
+            raise ValueError("标定样本不足或过期")
+        distances = [voltage_to_distance(v) for _, v in samples]
+        if any(status != "Normal" or d is None for d, status in distances):
+            raise ValueError("标定窗口包含超量程数据")
+        spread = max(d for d, _ in distances) - min(d for d, _ in distances)
+        if spread > max_spread:
+            raise ValueError(f"测量不稳定：窗口极差 {spread:.3f} mm")
+        volts = [v for _, v in samples]
+        filtered_v = apply_filter(volts)
+        distance, status = voltage_to_distance(filtered_v)
+        return {"channel": channel, "timestamp": datetime.now(timezone.utc).isoformat(),
+                "distance_mm": distance, "raw_voltage": filtered_v, "status": status,
+                "samples_in_window": len(samples), "spread_mm": spread,
+                "sample_age_seconds": now - samples[-1][0], "filter_method": settings.FILTER_METHOD,
+                "voltages": volts, "sample_offsets_seconds": [ts - samples[0][0] for ts, _ in samples]}
+
     def _window_samples(self, state: _ChannelState) -> list[float]:
         """Return voltages within the configured time window."""
         cutoff = time.monotonic() - settings.WINDOW_SECONDS

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>蚂蚁机器人 · 高度标定</title>
+  <link rel="stylesheet" href="/css/calibration.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div><span class="eyebrow">ANT / EOL CALIBRATION</span><h1>机器人高度标定</h1></div>
+    <a href="/">激光监测 ↗</a>
+  </header>
+  <main>
+    <section class="notice"><strong>安全边界</strong>　取消只停止后续调度，不是硬件急停。异常任务需确认机器人停止、料箱和工位安全后解锁。实机前请确认低位时料箱仍对平台施加载荷。</section>
+    <div class="auth-bar"><label>操作令牌 <input id="token" type="password" autocomplete="off" placeholder="仅保留在本页内存，不写入浏览器存储" /></label><button id="connect" type="button">连接服务</button><span id="system-status">连接中…</span></div>
+    <p id="message" role="status" aria-live="polite"></p>
+    <div class="layout">
+      <section class="panel config-panel">
+        <div class="section-heading"><div><span class="eyebrow">01 / RECIPE</span><h2>工位与工艺配置</h2></div><button id="demo" class="secondary" type="button">载入演示配置</button></div>
+        <label>已保存版本 <select id="config-select"><option value="">选择工位配置</option></select></label>
+        <form id="config-form">
+          <label>配置名称 <input id="config-name" required maxlength="80" /></label>
+          <p class="hint">地码需明确映射到坐标（mm）；A/B 是平台前后端，不是传感器通道。标定点朝向定义为传感器对准 A 点。</p>
+          <div class="table-scroll"><table class="points"><thead><tr><th>点位</th><th>地码</th><th>X / mm</th><th>Y / mm</th><th>朝向 / °</th></tr></thead><tbody id="point-fields"></tbody></table></div>
+          <label class="check"><input id="separate-storage" type="checkbox" /> 使用独立的料箱存放点（默认归还至取箱点）</label>
+          <div class="fields" id="process-fields"></div>
+          <details><summary>八项验收标准（未配置时只记录，不判定合格）</summary><div class="table-scroll"><table><thead><tr><th>启用</th><th>测量项</th><th>目标高度 / mm</th><th>允许偏差 / mm</th></tr></thead><tbody id="limit-fields"></tbody></table></div></details>
+          <details><summary>路线、反馈与高级参数</summary><p class="hint">approach_waypoints / exit_waypoints 为有序地码点列表。取箱、返回、归还为已确认的直线路段。载荷字段缺省时取放箱均需人工确认；不猜测 SN、扫码内容或载荷字段。</p><label>高级配置 JSON <textarea id="advanced" rows="12" spellcheck="false"></textarea></label></details>
+          <div class="actions"><button type="submit" id="save-config">保存新版本</button><span id="recipe-state">未保存</span></div>
+        </form>
+      </section>
+      <div class="right-column">
+        <section class="panel">
+          <div class="section-heading"><div><span class="eyebrow">02 / RUN</span><h2>启动标定</h2></div><span class="pill" id="mode-badge">模拟模式</span></div>
+          <form id="start-form">
+            <div class="fields"><label>识别类型 <select id="identity-type"><option value="robotLabel">robotLabel</option><option value="robotSN">robotSN（需服务端映射）</option></select></label><label>机器人标识 <input id="identity" required pattern="[A-Za-z0-9_.:\-]+" placeholder="输入 robotLabel 或 robotSN" /></label><label>运行模式 <select id="mode"><option value="simulation">模拟 · 不连接机器人</option><option id="live-option" value="live" disabled>实机 · MQTT 控制</option></select></label></div>
+            <div id="live-checks" hidden>
+              <label class="check"><input id="ground-clear" type="checkbox" /> 光路照射地面，无遮挡，可以记录地面基准</label>
+              <label class="check"><input id="robot-at-start" type="checkbox" /> 机器人空载、位于配置的起始地码和朝向</label>
+              <label class="check"><input id="route-safe" type="checkbox" /> 所有移动和旋转区域已清空，配置路线经过现场确认</label>
+              <label class="check"><input id="loaded-low-safe" type="checkbox" /> 负载低位仍承重，带箱低位旋转安全，激光照射平台测量面</label>
+              <label class="check"><input id="live-motion" type="checkbox" /> 允许该机器人执行本次实机标定动作</label>
+            </div>
+            <p class="hint">点击开始时记录当前地面距离；整个任务固定使用该基准。模拟模式使用独立合成数据，并缩短等待时间。</p>
+            <button type="submit" id="start" disabled>开始标定</button>
+          </form>
+          <p class="sensor-line" id="sensor-live">物理传感器：等待数据…</p>
+        </section>
+        <section class="panel task-panel">
+          <div class="section-heading"><div><span class="eyebrow">03 / MEASUREMENT</span><h2 id="task-title">等待标定任务</h2></div><span class="pill" id="task-status">空闲</span></div>
+          <p id="task-meta" class="hint">空载：ALN → AHN → BHN → BLN　负载：BHY → BLY → ALY → AHY</p>
+          <progress id="progress" max="8" value="0" aria-label="已采集测量项"></progress>
+          <div class="metrics"><div><span>地面基准</span><strong id="baseline">—</strong></div><div><span>采样等待</span><strong id="countdown">—</strong></div><div><span>验收结果</span><strong id="verdict">待采集</strong></div></div>
+          <p id="robot-state" class="hint">机器人状态：—</p>
+          <p id="task-error" class="error" role="alert" hidden></p>
+          <div class="table-scroll"><table><thead><tr><th>测量项</th><th>传感器 / mm</th><th>高度 / mm</th><th>偏差 / mm</th><th>判定</th></tr></thead><tbody id="measurements"></tbody></table></div>
+          <div class="actions"><button id="confirm-step" hidden type="button">确认现场状态</button><button id="cancel" class="danger" type="button" disabled>取消后续调度</button><button id="release" class="danger" hidden type="button">确认安全并解锁</button><button id="export" class="secondary" type="button" disabled>导出 CSV</button><button id="export-json" class="secondary" type="button" disabled>完整记录 JSON</button></div>
+          <details><summary>当前任务事件</summary><ol id="events" class="events"></ol></details>
+        </section>
+      </div>
+    </div>
+    <section class="panel history-panel"><div class="section-heading"><div><span class="eyebrow">04 / HISTORY</span><h2>历史标定记录</h2></div><button id="refresh-history" class="secondary" type="button">刷新记录</button></div><div class="table-scroll"><table><thead><tr><th>开始时间</th><th>机器人</th><th>模式</th><th>任务状态</th><th>验收结果</th><th>操作</th></tr></thead><tbody id="history"></tbody></table></div></section>
+  </main>
+  <footer>高度 = 地面基准距离 − 激光距离 · 流程完成与高度合格分别记录 · 不自动写回机器人标定参数</footer>
+  <script src="/js/calibration.js"></script>
+</body>
+</html>

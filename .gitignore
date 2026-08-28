@@ -34,3 +34,6 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Local calibration records and station lock
+data/

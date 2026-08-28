@@ -46,6 +46,18 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "logs/service.log"
 
+    # Live control is opt-in and requires a separate operator API token.
+    CALIBRATION_DB: str = "data/calibration.sqlite3"
+    CALIBRATION_LIVE_ENABLED: bool = False
+    CALIBRATION_API_TOKEN: str = ""
+    MQTT_HOST: str = ""
+    MQTT_PORT: int = 1883
+    MQTT_USERNAME: str = ""
+    MQTT_PASSWORD: str = ""
+    MQTT_TLS: bool = False
+    MQTT_CA_FILE: str | None = None
+    ROBOT_SN_MAP: dict[str, str] = Field(default_factory=dict)
+
     # Allow I2C_ADDRESS to be supplied as "0x48" string in .env.
     @field_validator("I2C_ADDRESS", mode="before")
     @classmethod

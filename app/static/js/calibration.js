@@ -1,0 +1,248 @@
+/* Station configuration and task controls; all external text is rendered with textContent. */
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const order = ["ALN", "AHN", "BHN", "BLN", "BHY", "BLY", "ALY", "AHY"];
+  const points = { start: "起始点", calibration: "标定点 A", bin: "取箱点 B", storage: "存放点", finish: "完成点" };
+  const process = {
+    sensor_channel: ["传感器通道（0–3）", 0, 3, 1], low_height_mm: ["低位指令 / mm", 0, 1000, 1],
+    high_height_mm: ["高位指令 / mm", 1, 1000, 1], settle_seconds: ["稳定等待 / s", 2, 30, 0.1],
+    command_timeout_seconds: ["命令超时 / s", 1, 600, 1], velocity: ["移动速度 / mm/s", 1, 500, 1],
+  };
+  const labels = { RUNNING: "执行中", CANCELLING: "取消中", COMPLETED: "流程完成", FAILED: "异常停止", CANCELLED: "已取消", INTERRUPTED: "重启中断", PASS: "合格", FAIL: "不合格", NOT_EVALUATED: "未配置标准", PENDING: "待采集" };
+  let recipes = [], currentConfig = null, configId = null, currentTask = null, dirty = true;
+  let system = null, stationOwner = null, taskSocket = null, sensorSocket = null, reconnect = null, stopped = false;
+  let currentView = null, generation = 0, seenEvents = new Set();
+
+  function el(tag, text, attrs = {}) {
+    const node = document.createElement(tag);
+    if (text !== null) node.textContent = text;
+    Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value));
+    return node;
+  }
+
+  function message(text, error = false) { $("message").textContent = text; $("message").className = error ? "error" : ""; }
+  const token = () => $("token").value;
+  async function api(path, body, method = body === undefined ? "GET" : "POST") {
+    const headers = { "Content-Type": "application/json" };
+    if (token()) headers.Authorization = `Bearer ${token()}`;
+    const response = await fetch(`/api/v1/calibration${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(typeof detail.detail === "string" ? detail.detail : JSON.stringify(detail.detail));
+    }
+    return response;
+  }
+  async function json(path, body) { return (await api(path, body)).json(); }
+  function handle(action) { return async (event) => { event?.preventDefault(); try { await action(event); } catch (error) { message(error.message, true); } }; }
+  function updateStart() { $("start").disabled = !configId || dirty || !!stationOwner; }
+  function markDirty() { dirty = true; $("recipe-state").textContent = "有未保存更改，请先保存新版本"; updateStart(); }
+
+  for (const [key, title] of Object.entries(points)) {
+    const row = el("tr", null, { id: `row-${key}` }); row.append(el("td", title));
+    for (const field of ["code", "x", "y", "orientation"]) {
+      const cell = el("td", null), input = el("input", null, { id: `${key}-${field}`, "aria-label": `${title} ${field}`, type: field === "code" ? "text" : "number", required: "" });
+      if (field === "orientation") { input.min = 0; input.max = 359.99; input.step = 0.01; }
+      cell.append(input); row.append(cell);
+    }
+    $("point-fields").append(row);
+  }
+  for (const [key, [title, min, max, step]] of Object.entries(process)) {
+    const label = el("label", title), input = el("input", null, { id: key, type: "number", min, max, step, required: "" });
+    label.append(input); $("process-fields").append(label);
+  }
+  for (const key of order) {
+    const row = el("tr", null);
+    const check = el("input", null, { type: "checkbox", id: `limit-${key}`, "aria-label": `启用 ${key} 验收` });
+    const cell = el("td", null); cell.append(check); row.append(cell, el("td", key));
+    for (const field of ["target", "tolerance"]) {
+      const td = el("td", null), input = el("input", null, { type: "number", step: "0.01", id: `${field}-${key}`, "aria-label": `${key} ${field}` });
+      if (field === "tolerance") input.min = 0;
+      td.append(input); row.append(td);
+    }
+    $("limit-fields").append(row);
+  }
+
+  function storageVisibility() {
+    $("row-storage").hidden = !$("separate-storage").checked;
+    $("row-storage").querySelectorAll("input").forEach((input) => { input.disabled = !$("separate-storage").checked; });
+  }
+  function loadRecipe(recipe, id = null) {
+    currentConfig = structuredClone(recipe); configId = id;
+    $("config-name").value = recipe.name;
+    for (const key of Object.keys(points)) {
+      const point = recipe[key] || recipe.bin;
+      for (const field of ["code", "x", "y", "orientation"]) $(`${key}-${field}`).value = point[field];
+      if (key === "storage" && !recipe.storage) $("storage-orientation").value = recipe.calibration.orientation;
+    }
+    $("separate-storage").checked = !!recipe.storage; storageVisibility();
+    Object.keys(process).forEach((key) => { $(key).value = recipe[key]; });
+    const advanced = structuredClone(recipe);
+    for (const key of ["name", "limits", ...Object.keys(points), ...Object.keys(process)]) delete advanced[key];
+    $("advanced").value = JSON.stringify(advanced, null, 2);
+    for (const key of order) {
+      const limit = recipe.limits[key];
+      $(`limit-${key}`).checked = !!limit;
+      $(`target-${key}`).value = limit?.target_mm ?? "";
+      $(`tolerance-${key}`).value = limit?.tolerance_mm ?? "";
+    }
+    dirty = !id; $("recipe-state").textContent = id ? `已保存版本 ${id.slice(0, 8)}` : "演示参数尚未保存";
+    $("config-select").value = id || ""; updateStart();
+  }
+  function readRecipe() {
+    const value = JSON.parse($("advanced").value);
+    if (!value || Array.isArray(value) || typeof value !== "object") throw new Error("高级参数必须为 JSON 对象");
+    value.name = $("config-name").value.trim();
+    for (const key of Object.keys(points)) {
+      value[key] = { code: $(`${key}-code`).value.trim(), x: Number($(`${key}-x`).value), y: Number($(`${key}-y`).value), orientation: Number($(`${key}-orientation`).value) };
+    }
+    if (!$("separate-storage").checked) value.storage = null;
+    Object.keys(process).forEach((key) => { value[key] = Number($(key).value); });
+    value.limits = {};
+    for (const key of order) if ($(`limit-${key}`).checked) {
+      if (!$(`target-${key}`).value || !$(`tolerance-${key}`).value) throw new Error(`${key} 的目标和公差不能为空`);
+      value.limits[key] = { target_mm: Number($(`target-${key}`).value), tolerance_mm: Number($(`tolerance-${key}`).value) };
+    }
+    return value;
+  }
+  async function refreshRecipes() {
+    recipes = await json("/configs"); $("config-select").replaceChildren(el("option", "选择工位配置", { value: "" }));
+    recipes.forEach((record) => $("config-select").append(el("option", `${record.config.name} · ${record.id.slice(0,8)}`, { value: record.id })));
+    $("config-select").value = configId || "";
+  }
+  $("config-form").addEventListener("input", markDirty);
+  $("separate-storage").addEventListener("change", storageVisibility);
+  $("config-select").addEventListener("change", () => { const record = recipes.find((r) => r.id === $("config-select").value); if (record) loadRecipe(record.config, record.id); });
+  $("demo").addEventListener("click", () => { if (system) { loadRecipe(system.demo_config); $("identity").value = "DEMO-ANT"; $("mode").value = "simulation"; setMode(); } });
+  $("config-form").addEventListener("submit", handle(async () => {
+    const record = await json("/configs", readRecipe()); await refreshRecipes(); loadRecipe(record.config, record.id); message("工位配置已保存为新版本。");
+  }));
+  function setMode() {
+    const live = $("mode").value === "live";
+    $("live-checks").hidden = !live; $("mode-badge").textContent = live ? "实机模式" : "模拟模式";
+    $("mode-badge").className = live ? "pill live" : "pill";
+  }
+  $("mode").addEventListener("change", setMode);
+  $("start-form").addEventListener("submit", handle(async () => {
+    if (dirty || !configId) throw new Error("请先保存工位配置");
+    $("start").disabled = true;
+    try {
+      const task = await json("/tasks", { config_id: configId, identity_type: $("identity-type").value,
+        identity: $("identity").value.trim(), mode: $("mode").value,
+        ground_clear_confirmed: $("ground-clear").checked, robot_at_start_confirmed: $("robot-at-start").checked,
+        route_safe_confirmed: $("route-safe").checked, loaded_low_safe_confirmed: $("loaded-low-safe").checked,
+        live_motion_confirmed: $("live-motion").checked });
+      stationOwner = task.id; await viewTask(task.id); message(task.mode === "simulation" ? "模拟已启动；不会连接 MQTT 或移动真实机器人。" : "实机标定已启动，请留意现场安全。");
+    } finally { updateStart(); }
+  }));
+
+  const number = (value) => value === null || value === undefined ? "—" : Number(value).toFixed(3);
+  function renderTask(task) {
+    currentTask = task;
+    $("task-title").textContent = task.step_title;
+    $("task-status").textContent = labels[task.status] || task.status;
+    $("task-meta").textContent = `${task.mode === "simulation" ? "模拟数据 · 不可用于实机验收" : "实机数据"} / ${task.robot_label} / ${task.id}`;
+    $("progress").value = Object.keys(task.measurements).length;
+    $("baseline").textContent = `${number(task.baseline.distance_mm)} mm`;
+    $("verdict").textContent = labels[task.verdict] || task.verdict;
+    $("verdict").className = task.verdict.toLowerCase();
+    $("task-error").hidden = !task.error; $("task-error").textContent = task.error || "";
+    const r = task.robot_state;
+    $("robot-state").textContent = r.mainState ? `机器人 ${r.mainState} · X ${number(r.coordX)} / Y ${number(r.coordY)} · 朝向 ${number(r.orientation / 100)}° · 举升 ${number(r.liftHeight)} mm` : "等待机器人状态";
+    $("measurements").replaceChildren();
+    for (const key of order) {
+      const m = task.measurements[key], row = el("tr", null);
+      [key, number(m?.reading.distance_mm), number(m?.height_mm), number(m?.deviation_mm), m ? labels[m.verdict] : "待采集"].forEach((v) => row.append(el("td", v)));
+      if (m) row.lastChild.className = m.verdict.toLowerCase(); $("measurements").append(row);
+    }
+    const active = ["RUNNING", "CANCELLING"].includes(task.status);
+    $("cancel").disabled = !active || task.status === "CANCELLING";
+    $("confirm-step").hidden = !task.pending_confirmation;
+    $("confirm-step").textContent = task.pending_confirmation === "CONFIRM_PICKUP" ? "确认料箱已取到" : "确认料箱已归还";
+    $("release").hidden = active || !task.station_locked;
+    $("export").disabled = false; $("export-json").disabled = false;
+    if (task.station_locked) stationOwner = task.id;
+    else if (stationOwner === task.id) stationOwner = null;
+    updateStart();
+  }
+  function renderEvents(events) {
+    events.forEach((event) => {
+      if (seenEvents.has(event.seq)) return; seenEvents.add(event.seq);
+      const data = event.data;
+      const description = data.title || data.message || data.key || data.payload?.robotCommands?.[0]?.commandContent?.robotCommandType || data.status || "";
+      $("events").append(el("li", `${new Date(event.timestamp).toLocaleTimeString()} ${event.kind} ${description}`));
+    });
+    while ($("events").children.length > 200) $("events").firstChild.remove();
+  }
+  async function viewTask(id) {
+    currentView = id; generation += 1; const gen = generation; seenEvents = new Set(); $("events").replaceChildren();
+    clearTimeout(reconnect); if (taskSocket) { taskSocket.onclose = null; taskSocket.close(); }
+    const task = await json(`/tasks/${id}`); if (gen !== generation) return; renderTask(task);
+    connectTask(id, gen);
+  }
+  function connectTask(id, gen) {
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/calibration/${id}`); taskSocket = ws;
+    ws.onopen = () => ws.send(JSON.stringify({ token: token() }));
+    ws.onmessage = (event) => {
+      if (gen !== generation) return;
+      const data = JSON.parse(event.data); renderTask(data.task); renderEvents(data.events);
+    };
+    ws.onclose = (event) => {
+      if (stopped || gen !== generation) return;
+      if (event.code === 1008) { message("任务连接被拒绝，请检查操作令牌。", true); return; }
+      if (currentTask && !["RUNNING", "CANCELLING"].includes(currentTask.status)) { refreshHistory().catch((e) => message(e.message, true)); return; }
+      reconnect = setTimeout(() => connectTask(id, gen), 1500);
+    };
+  }
+  $("cancel").addEventListener("click", handle(async () => { renderTask(await json(`/tasks/${currentView}/cancel`, {})); }));
+  $("confirm-step").addEventListener("click", handle(async () => { renderTask(await json(`/tasks/${currentView}/confirm`, { step: currentTask.pending_confirmation, confirmed: true })); }));
+  $("release").addEventListener("click", handle(async () => {
+    if (!window.confirm("请现场确认：机器人已完全停止，料箱和工位安全。确认后才允许下一台机器人进入。")) return;
+    renderTask(await json(`/tasks/${currentView}/release`, { robot_stopped_and_station_safe: true }));
+    message("人工确认已记录，工位已解锁。");
+  }));
+  function download(blob, filename) {
+    const url = URL.createObjectURL(blob), a = el("a", "", { href: url, download: filename });
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  $("export").addEventListener("click", handle(async () => { download(await (await api(`/tasks/${currentView}/export`)).blob(), `calibration-${currentView}.csv`); }));
+  $("export-json").addEventListener("click", handle(async () => {
+    const record = await json(`/tasks/${currentView}`); let cursor = 0; const events = [];
+    while (true) { const page = await json(`/tasks/${currentView}/events?after=${cursor}`); events.push(...page); if (page.length < 500) break; cursor = page.at(-1).seq; }
+    download(new Blob([JSON.stringify({ task: record, events }, null, 2)], { type: "application/json" }), `calibration-${currentView}.json`);
+  }));
+  async function refreshHistory() {
+    const list = await json("/tasks"); $("history").replaceChildren();
+    list.forEach((task) => {
+      const row = el("tr", null);
+      [new Date(task.created_at).toLocaleString(), task.robot_label, task.mode === "simulation" ? "模拟" : "实机", labels[task.status], labels[task.verdict]].forEach((v) => row.append(el("td", v)));
+      const cell = el("td", null), button = el("button", "查看", { type: "button", class: "secondary" });
+      button.addEventListener("click", handle(() => viewTask(task.id))); cell.append(button); row.append(cell); $("history").append(row);
+    });
+  }
+  $("refresh-history").addEventListener("click", handle(refreshHistory));
+  async function connect() {
+    system = await json("/system"); stationOwner = system.station_owner;
+    $("system-status").textContent = system.live_enabled ? "服务在线 · 实机已启用" : "服务在线 · 仅模拟可用（实机未启用）";
+    $("live-option").disabled = !system.live_enabled;
+    await refreshRecipes();
+    if (!currentConfig) { if (recipes.length) loadRecipe(recipes[0].config, recipes[0].id); else loadRecipe(system.demo_config); }
+    await refreshHistory();
+    if (stationOwner) await viewTask(stationOwner);
+    updateStart(); message("服务已连接。");
+  }
+  $("connect").addEventListener("click", handle(connect));
+  const clock = setInterval(() => { $("countdown").textContent = currentTask?.wait_until ? `${Math.max(0, currentTask.wait_until - Date.now() / 1000).toFixed(1)} s` : "—"; }, 100);
+  for (const key of order) {
+    const row = el("tr", null);
+    [key, "—", "—", "—", "待采集"].forEach((value) => row.append(el("td", value)));
+    $("measurements").append(row);
+  }
+  function connectSensor() {
+    sensorSocket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/distance`);
+    sensorSocket.onmessage = (event) => { const data = JSON.parse(event.data); $("sensor-live").textContent = "物理传感器（独立实时数据）：" + data.channels.map((c) => `通道 ${c.channel} ${c.status === "Normal" ? `${number(c.distance_mm)} mm` : c.status}`).join(" / "); };
+    sensorSocket.onclose = () => { $("sensor-live").textContent = "物理传感器连接已断开"; if (!stopped) setTimeout(connectSensor, 3000); };
+  }
+  window.addEventListener("beforeunload", () => { stopped = true; clearInterval(clock); clearTimeout(reconnect); taskSocket?.close(); sensorSocket?.close(); });
+  connect().catch((e) => message(e.message, true)); connectSensor();
+})();
