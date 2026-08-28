@@ -189,6 +189,7 @@ class CalibrationService:
             self._assert_point(config.start, config.start.orientation, config)
             if task["mode"] == "live" and config.load_feedback_field:
                 self._assert_load(False, config)
+            self.robot.seed_theoretical_from_start()
             self._step("START_LOW", "起点下降至低位")
             await self.robot.command("LIFT", liftHeight=config.low_height_mm)
             await self._transit(
@@ -400,7 +401,12 @@ class CalibrationService:
                     > config.orientation_tolerance_deg
                 ):
                     await self.robot.command("SPIN", orientation=round(heading * 100))
-                await self.robot.command("MOVE", coordX=point.x, coordY=point.y)
+                await self.robot.command(
+                    "MOVE",
+                    coordX=point.x,
+                    coordY=point.y,
+                    orientation=round(heading * 100),
+                )
             if (
                 angle_error(self.robot.state["orientation"] / 100, point.orientation)
                 > config.orientation_tolerance_deg
@@ -425,7 +431,12 @@ class CalibrationService:
             > config.orientation_tolerance_deg
         ):
             raise ValueError("取放箱行驶前朝向错误")
-        await self.robot.command("MOVE", coordX=point.x, coordY=point.y)
+        await self.robot.command(
+            "MOVE",
+            coordX=point.x,
+            coordY=point.y,
+            orientation=round(orientation * 100),
+        )
         self._assert_point(point, orientation, config)
 
     async def _wait_still(

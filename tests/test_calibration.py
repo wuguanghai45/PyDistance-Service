@@ -18,7 +18,15 @@ from app.calibration_models import (
     StationConfig,
     demo_config,
 )
-from app.calibration_robot import LiveRobot, SimRobot, build_command, target_matches
+from app.calibration_robot import (
+    LiveRobot,
+    SimRobot,
+    build_command,
+    pose_from_command_state,
+    start_theoretical_pose,
+    target_matches,
+    theoretical_pose,
+)
 from app.calibration_routes import router, ws_router
 from app.calibration_service import CalibrationService
 from app.calibration_store import StationBusy, Store
@@ -438,7 +446,7 @@ def test_unknown_pose_can_initialize_without_fabricating_coordinates():
     robot.ingest("robot/state/ANT", {"mainState": "UNKNOWN", "liftHeight": ""})
     assert robot.error is None
     assert robot.state["mainState"] == "UNKNOWN"
-    body = build_command("ANT", "INIT", robot.state, robot.config)
+    body = build_command("ANT", "INIT", theoretical_pose(robot.config, 0), robot.config)
     assert body["robotCommands"][0]["commandContent"] == {"robotCommandType": "INIT"}
     robot.ingest("robot/state/ANT", {"mainState": "IDLE", "liftHeight": ""})
     assert robot.error is not None
@@ -486,25 +494,71 @@ def live_adapter(config=None):
     robot.connected = True
     state = {
         "mainState": "IDLE",
-        "coordX": 1000,
-        "coordY": 0,
-        "orientation": 0,
-        "liftHeight": 0,
+        "coordX": config.start.x,
+        "coordY": config.start.y,
+        "orientation": round(config.start.orientation * 100),
+        "liftHeight": config.low_height_mm,
         "qrCodeStatus": True,
     }
     robot.ingest("robot/state/ANT", state)
+    robot.seed_theoretical_from_start(state["liftHeight"])
     return robot, state
 
 
 def test_wire_units_and_obstacle_avoidance():
     config = demo_config()
     robot, state = live_adapter(config)
-    body = build_command("ANT", "SPIN", state, config, orientation=18000)
+    expected = start_theoretical_pose(config, state["liftHeight"])
+    body = build_command("ANT", "SPIN", expected, config, orientation=18000)
     command = body["robotCommands"][0]
     assert command["commandContent"]["orientation"] == 18000
     assert command["commandContent"]["obstacleAvoidance"] is True
-    assert command["expectedState"]["coordX"] == state["coordX"]
+    assert command["expectedState"]["coordX"] == expected["coordX"]
+    assert command["futureState"]["orientation"] == 18000
     assert target_matches({"orientation": 35990}, {"orientation": 0}, config)
+
+
+def test_build_command_chains_theoretical_states():
+    config = demo_config()
+    start = start_theoretical_pose(config, 0)
+    spin = build_command("ANT", "SPIN", start, config, orientation=9000)
+    after_spin = pose_from_command_state(spin["robotCommands"][0]["futureState"])
+    assert after_spin["orientation"] == 9000
+    assert after_spin["coordX"] == start["coordX"]
+    move = build_command(
+        "ANT",
+        "MOVE",
+        after_spin,
+        config,
+        coordX=147250,
+        coordY=145015,
+        orientation=9000,
+    )
+    command = move["robotCommands"][0]
+    assert pose_from_command_state(command["expectedState"]) == after_spin
+    assert pose_from_command_state(command["futureState"]) == {
+        "coordX": 147250,
+        "coordY": 145015,
+        "orientation": 9000,
+        "liftHeight": 0,
+    }
+    assert command["commandContent"]["orientation"] == 9000
+
+
+def test_first_motion_command_uses_start_theoretical_expected_state():
+    config = demo_config()
+    robot, state = live_adapter(config)
+    body = build_command(
+        "ANT",
+        "LIFT",
+        robot._theoretical_state,
+        config,
+        liftHeight=config.low_height_mm,
+    )
+    command = body["robotCommands"][0]
+    assert pose_from_command_state(command["expectedState"]) == start_theoretical_pose(
+        config, state["liftHeight"]
+    )
 
 
 def test_robot_diagnostics_matches_idle_gate():

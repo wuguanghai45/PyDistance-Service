@@ -27,11 +27,42 @@ def field_value(state: dict, dotted_path: str):
     return value
 
 
-def build_command(
-    label: str, action: str, state: dict, config: StationConfig, **target
-) -> dict:
-    """Build one reference-compatible command, using actual current telemetry.
+def theoretical_pose(config: StationConfig, lift_height: float | int) -> dict:
+    """Return the configured start pose used to seed the command state chain."""
+    return {
+        "coordX": config.start.x,
+        "coordY": config.start.y,
+        "orientation": round(config.start.orientation * 100),
+        "liftHeight": lift_height,
+    }
 
+
+def start_theoretical_pose(
+    config: StationConfig, lift_height: float | int | None = None
+) -> dict:
+    """Return the start waypoint pose for the first command's expectedState."""
+    height = config.low_height_mm if lift_height is None else lift_height
+    return theoretical_pose(config, height)
+
+
+def pose_from_command_state(state: dict) -> dict:
+    """Extract the pose fields carried in expectedState/futureState envelopes."""
+    return {
+        k: state[k] for k in ("coordX", "coordY", "orientation", "liftHeight")
+    }
+
+
+def build_command(
+    label: str,
+    action: str,
+    expected_state: dict,
+    config: StationConfig,
+    **target,
+) -> dict:
+    """Build one reference-compatible command from the previous theoretical pose.
+
+    expectedState is the prior command's futureState; futureState is the new
+    target pose. Neither envelope uses live telemetry.
     The firmware uses centidegrees; configuration and navigation use degrees.
     Each independent command gets a UUID and is never automatically reissued.
     """
@@ -49,9 +80,7 @@ def build_command(
             originOrientation=round(config.start.orientation * 100),
         )
     elif action in ("MOVE", "SPIN", "LIFT"):
-        future = {
-            k: state[k] for k in ("coordX", "coordY", "orientation", "liftHeight")
-        }
+        future = pose_from_command_state(expected_state)
         future.update(target)
         content.update(
             future,
@@ -64,7 +93,7 @@ def build_command(
             millisecond=0,
             obstacleAvoidance=config.obstacle_avoidance,
         )
-        for key, values in (("expectedState", state), ("futureState", future)):
+        for key, values in (("expectedState", expected_state), ("futureState", future)):
             command[key] = {
                 k: values[k] for k in ("coordX", "coordY", "orientation", "liftHeight")
             }
@@ -139,6 +168,17 @@ class LiveRobot:
         self.pending: str | None = None
         self.result: str | None = None
         self.success_sequence: int | None = None
+        self._theoretical_state = theoretical_pose(config, config.low_height_mm)
+
+    def _commit_theoretical(self, future_state: dict) -> None:
+        """Advance the command chain to the just-completed theoretical pose."""
+        self._theoretical_state = pose_from_command_state(future_state)
+
+    def seed_theoretical_from_start(self, lift_height: float | int | None = None) -> None:
+        """Anchor the command chain at the configured start pose."""
+        if lift_height is None:
+            lift_height = self.state.get("liftHeight", self.config.low_height_mm)
+        self._theoretical_state = start_theoretical_pose(self.config, lift_height)
 
     async def start(self) -> None:
         """Connect and subscribe without automatic reconnect or command replay."""
@@ -212,6 +252,7 @@ class LiveRobot:
                 raise TimeoutError("等待 MQTT 连接/首次非保留状态超时")
             await asyncio.sleep(0.05)
         self.guard()
+        self.seed_theoretical_from_start()
 
     def _network_error(self, message: str) -> None:
         """Record asynchronous network failure unless shutdown is intentional."""
@@ -281,7 +322,9 @@ class LiveRobot:
             and self.state["mainState"] != "IDLE"
         ):
             raise RuntimeError("机器人不是 IDLE，拒绝下发动作")
-        payload = build_command(self.label, action, self.state, self.config, **target)
+        payload = build_command(
+            self.label, action, self._theoretical_state, self.config, **target
+        )
         command = payload["robotCommands"][0]
         self.pending, self.result, self.success_sequence = (
             command["robotCommandLabel"],
@@ -319,6 +362,10 @@ class LiveRobot:
                     if self.state["mainState"] in allowed and target_matches(
                         self.state, expected, self.config
                     ):
+                        if action in ("MOVE", "SPIN", "LIFT"):
+                            self._commit_theoretical(command["futureState"])
+                        elif action == "HOME_SET_ORIGIN":
+                            self.seed_theoretical_from_start()
                         self.audit(
                             "command_complete",
                             {"label": self.pending, "state": self.state.copy()},
@@ -344,34 +391,53 @@ class SimRobot:
 
     def __init__(self, label: str, config: StationConfig, settings, audit):
         self.label, self.config, self.audit = label, config, audit
+        self._theoretical_state = theoretical_pose(config, config.low_height_mm)
         self.state = {
             "mainState": "UNKNOWN",
-            "coordX": config.start.x,
-            "coordY": config.start.y,
-            "orientation": round(config.start.orientation * 100),
-            "liftHeight": config.low_height_mm,
+            **self._theoretical_state,
             "qrCodeStatus": True,
         }
         self.connected = False
+        self.received_at = 0.0
 
     async def start(self) -> None:
         """Start only the local simulator."""
         self.connected = True
+        self.received_at = time.monotonic()
 
     def guard(self) -> None:
         """Reject use after the simulation session closed."""
         if not self.connected:
             raise RuntimeError("模拟机器人已关闭")
 
+    def _commit_theoretical(self, future_state: dict) -> None:
+        """Advance the command chain to the just-completed theoretical pose."""
+        self._theoretical_state = pose_from_command_state(future_state)
+
+    def seed_theoretical_from_start(self, lift_height: float | int | None = None) -> None:
+        """Anchor the command chain at the configured start pose."""
+        if lift_height is None:
+            lift_height = self.state.get("liftHeight", self.config.low_height_mm)
+        self._theoretical_state = start_theoretical_pose(self.config, lift_height)
+
     async def command(self, action: str, **target) -> None:
         """Simulate asynchronous motion and preserve the reference wire payload."""
         self.guard()
-        payload = build_command(self.label, action, self.state, self.config, **target)
+        payload = build_command(
+            self.label, action, self._theoretical_state, self.config, **target
+        )
+        command = payload["robotCommands"][0]
         self.audit("command_sent", {"simulation": True, "payload": payload})
         self.state["mainState"] = "WORKING"
         await asyncio.sleep(0.03)
-        self.state.update(target)
+        if action in ("MOVE", "SPIN", "LIFT"):
+            self._commit_theoretical(command["futureState"])
+            self.state.update(self._theoretical_state)
+        elif action == "HOME_SET_ORIGIN":
+            self.seed_theoretical_from_start()
+            self.state.update(self._theoretical_state)
         self.state["mainState"] = "IDLE"
+        self.received_at = time.monotonic()
         self.audit("command_complete", {"simulation": True, "state": self.state.copy()})
 
     async def close(self) -> None:
