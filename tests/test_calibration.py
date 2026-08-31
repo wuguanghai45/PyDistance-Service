@@ -1038,6 +1038,11 @@ def test_api_without_token_and_websocket_without_handshake(tmp_path):
         assert len(result["measurements"]) == 8
         csv = client.get(f"/api/v1/calibration/tasks/{task_id}/export")
         assert "simulation,COMPLETED" in csv.text
+        deleted = client.delete(f"/api/v1/calibration/configs/{record['id']}")
+        assert deleted.status_code == 204
+        assert client.get("/api/v1/calibration/configs").json() == []
+        assert client.get(f"/api/v1/calibration/tasks/{task_id}").json()["config"] == record["config"]
+        assert client.delete(f"/api/v1/calibration/configs/{record['id']}").status_code == 404
         assert "ALN" in csv.text and "BHY" in csv.text
         assert client.get("/api/v1/calibration/tasks/missing").status_code == 404
         assert (

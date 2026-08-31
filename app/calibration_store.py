@@ -90,6 +90,19 @@ class Store:
             raise KeyError(config_id)
         return json.loads(row[0])
 
+    def delete_config(self, config_id: str) -> None:
+        """Delete one recipe version without changing task snapshots.
+
+        Tasks persist a full copy of their recipe when they are created, so removing
+        the editable version does not affect in-progress or historical tasks.
+        """
+        with self.db:
+            deleted = self.db.execute(
+                "DELETE FROM configs WHERE id=?", (config_id,)
+            ).rowcount
+        if not deleted:
+            raise KeyError(config_id)
+
     def owner(self) -> str | None:
         """Read the durable station lock, including failed live tasks."""
         return self.db.execute("SELECT task_id FROM station WHERE id=1").fetchone()[0]

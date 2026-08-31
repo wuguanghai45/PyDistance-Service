@@ -36,7 +36,10 @@
   }
   async function json(path, body) { return (await api(path, body)).json(); }
   function handle(action) { return async (event) => { event?.preventDefault(); try { await action(event); } catch (error) { message(error.message, true); } }; }
-  function updateStart() { $("start").disabled = !configId || dirty || !!stationOwner; }
+  function updateStart() {
+    $("start").disabled = !configId || dirty || !!stationOwner;
+    $("delete-config").disabled = !configId;
+  }
   function markDirty() { dirty = true; $("recipe-state").textContent = "有未保存更改，请先保存新版本"; updateStart(); }
 
   for (const [key, title] of Object.entries(points)) {
@@ -120,6 +123,18 @@
   $("demo").addEventListener("click", () => { if (system) { loadRecipe(system.demo_config); $("identity").value = "DEMO-ANT"; $("mode").value = "simulation"; setMode(); } });
   $("config-form").addEventListener("submit", handle(async () => {
     const record = await json("/configs", readRecipe()); await refreshRecipes(); loadRecipe(record.config, record.id); message("工位配置已保存为新版本。");
+  }));
+  $("delete-config").addEventListener("click", handle(async () => {
+    if (!configId || !currentConfig) return;
+    const name = currentConfig.name || "当前配置";
+    if (!window.confirm(`确定删除配置“${name}”吗？已启动和历史标定任务不受影响。`)) return;
+    await api(`/configs/${encodeURIComponent(configId)}`, undefined, "DELETE");
+    configId = null;
+    dirty = true;
+    await refreshRecipes();
+    $("recipe-state").textContent = "配置已删除；当前参数尚未保存";
+    updateStart();
+    message(`配置“${name}”已删除。`);
   }));
   function setMode() {
     const live = $("mode").value === "live";

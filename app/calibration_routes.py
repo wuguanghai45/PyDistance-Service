@@ -81,6 +81,17 @@ async def save_config(
     return svc.store.save_config(config.model_dump())
 
 
+@router.delete("/configs/{config_id}", status_code=204)
+async def delete_config(
+    config_id: str, svc: CalibrationService = Depends(service)
+) -> None:
+    """Delete one saved recipe version while retaining every task snapshot."""
+    try:
+        svc.store.delete_config(config_id)
+    except KeyError as exc:
+        raise translate_error(exc) from exc
+
+
 @router.post("/tasks", status_code=201)
 async def start_task(
     body: StartRequest, svc: CalibrationService = Depends(service)

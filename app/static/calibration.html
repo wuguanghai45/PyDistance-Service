@@ -19,6 +19,7 @@
       <section class="panel config-panel">
         <div class="section-heading"><div><span class="eyebrow">01 / RECIPE</span><h2>工位与工艺配置</h2></div><button id="demo" class="secondary" type="button">载入演示配置</button></div>
         <label>已保存版本 <select id="config-select"><option value="">选择工位配置</option></select></label>
+        <div class="actions"><button id="delete-config" class="danger" type="button" disabled>删除当前配置</button></div>
         <form id="config-form">
           <label>配置名称 <input id="config-name" required maxlength="80" /></label>
           <p class="hint">地码需明确映射到坐标（mm）；A/B 是平台前后端，不是传感器通道。标定点朝向定义为传感器对准 A 点。</p>
