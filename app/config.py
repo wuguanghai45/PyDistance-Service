@@ -59,7 +59,7 @@ class Settings(BaseSettings):
 
     # Factory device registry used by the calibration robot picker.
     ROBOT_DEVICE_API_URL: str = "http://10.0.81.109:8787/api/devices"
-    ROBOT_DEVICE_API_TIMEOUT_SECONDS: float = Field(default=3.0, gt=0, le=30)
+    ROBOT_DEVICE_API_TIMEOUT_SECONDS: float = Field(default=5.0, gt=0, le=30)
 
     # Allow I2C_ADDRESS to be supplied as "0x48" string in .env.
     @field_validator("I2C_ADDRESS", mode="before")

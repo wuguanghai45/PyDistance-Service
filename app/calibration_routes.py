@@ -26,6 +26,10 @@ from app.calibration_models import (
 from app.calibration_service import TERMINAL, CalibrationService
 from app.calibration_store import StationBusy
 from app.device_registry import DeviceRegistryError, fetch_online_robot_sns
+from app.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def service(request: Request) -> CalibrationService:
@@ -77,6 +81,11 @@ async def robots(svc: CalibrationService = Depends(service)) -> dict[str, list[s
             svc.settings.ROBOT_DEVICE_API_TIMEOUT_SECONDS,
         )
     except DeviceRegistryError as exc:
+        logger.warning(
+            "ROBOT_DEVICE_REGISTRY_UNAVAILABLE url=%s error=%s",
+            svc.settings.ROBOT_DEVICE_API_URL,
+            exc.__cause__ or exc,
+        )
         raise HTTPException(503, str(exc)) from exc
     return {"robot_sns": robot_sns}
 
