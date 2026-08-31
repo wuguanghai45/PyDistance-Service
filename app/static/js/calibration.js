@@ -13,7 +13,7 @@
     acceleration: ["移动加速度 / mm/s²", 1, 500, 1],
   };
   const labels = { RUNNING: "执行中", CANCELLING: "取消中", COMPLETED: "流程完成", FAILED: "异常停止", CANCELLED: "已取消", INTERRUPTED: "重启中断", PASS: "合格", FAIL: "不合格", NOT_EVALUATED: "未配置标准", PENDING: "待采集" };
-  let recipes = [], currentConfig = null, configId = null, currentTask = null, dirty = true;
+  let recipes = [], currentConfig = null, configId = null, currentTask = null, dirty = true, configFormTouched = false;
   let system = null, stationOwner = null, taskSocket = null, sensorSocket = null, reconnect = null, stopped = false;
   let currentView = null, generation = 0, seenEvents = new Set();
   let robotRecords = [], robotPickerOpen = false, robotPickerActive = -1;
@@ -40,7 +40,16 @@
   function updateStart() {
     $("start").disabled = !system?.live_enabled || !configId || dirty || !!stationOwner || !$("identity").value;
   }
-  function markDirty() { dirty = true; $("recipe-state").textContent = "有未保存更改，请先保存新版本"; updateStart(); }
+  function setRecipeState(text) {
+    $("recipe-state").textContent = text;
+    $("config-summary-state").textContent = text;
+  }
+  function markDirty() {
+    dirty = true;
+    configFormTouched = true;
+    setRecipeState("有未保存更改，请先保存新版本");
+    updateStart();
+  }
 
   for (const [key, title] of Object.entries(points)) {
     const row = el("tr", null, { id: `row-${key}` }); row.append(el("td", title));
@@ -73,6 +82,8 @@
   }
   function loadRecipe(recipe, id = null) {
     currentConfig = structuredClone(recipe); configId = id;
+    configFormTouched = false;
+    $("active-config-name").textContent = recipe.name || "未命名工位配置";
     $("config-name").value = recipe.name;
     for (const key of Object.keys(points)) {
       const point = recipe[key] || recipe.bin;
@@ -92,7 +103,7 @@
     }
     const unsupportedChannel = recipe.sensor_channel !== sensorChannel;
     dirty = !id || unsupportedChannel;
-    $("recipe-state").textContent = unsupportedChannel ? `旧配置：${channelLabel(recipe.sensor_channel)}。请保存为 A1（channel=1）的新版本后启动` : (id ? `已保存版本 ${id.slice(0, 8)}` : "演示参数尚未保存");
+    setRecipeState(unsupportedChannel ? `旧配置：${channelLabel(recipe.sensor_channel)}。请保存为 A1（channel=1）的新版本后启动` : (id ? `已保存版本 ${id.slice(0, 8)}` : "演示参数尚未保存"));
     $("config-select").value = id || ""; updateStart();
   }
   function readRecipe() {
@@ -117,9 +128,36 @@
     recipes.forEach((record) => $("config-select").append(el("option", `${record.config.name} · ${record.id.slice(0,8)}`, { value: record.id })));
     $("config-select").value = configId || "";
   }
+  function closeConfigDialog() {
+    const dialog = $("config-dialog");
+    if (configFormTouched && !window.confirm("当前工位配置有未保存更改。确定关闭窗口并放弃这些更改吗？")) return;
+    dialog.close();
+  }
+  $("open-config").addEventListener("click", () => {
+    const dialog = $("config-dialog");
+    dialog.showModal();
+    $("close-config").focus();
+  });
+  $("close-config").addEventListener("click", closeConfigDialog);
+  $("config-dialog").addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeConfigDialog();
+  });
+  $("config-dialog").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closeConfigDialog();
+  });
+  $("config-dialog").addEventListener("close", () => $("open-config").focus());
   $("config-form").addEventListener("input", markDirty);
   $("separate-storage").addEventListener("change", storageVisibility);
-  $("config-select").addEventListener("change", () => { const record = recipes.find((r) => r.id === $("config-select").value); if (record) loadRecipe(record.config, record.id); });
+  $("config-select").addEventListener("change", () => {
+    const selectedId = $("config-select").value;
+    if (configFormTouched && !window.confirm("当前工位配置有未保存更改。确定放弃这些更改并切换版本吗？")) {
+      $("config-select").value = configId || "";
+      return;
+    }
+    const record = recipes.find((item) => item.id === selectedId);
+    if (record) loadRecipe(record.config, record.id);
+  });
   $("config-form").addEventListener("submit", handle(async () => {
     const record = await json("/configs", readRecipe()); await refreshRecipes(); loadRecipe(record.config, record.id); message("工位配置已保存为新版本。");
   }));
@@ -132,8 +170,10 @@
     await api(`/configs/${encodeURIComponent(configId)}`, undefined, "DELETE");
     configId = null;
     dirty = true;
+    configFormTouched = false;
     await refreshRecipes();
-    $("recipe-state").textContent = "配置已删除；当前参数尚未保存";
+    $("active-config-name").textContent = "当前配置已删除";
+    setRecipeState("配置已删除；当前参数尚未保存");
     updateStart();
     message(`配置“${name}”已删除。`);
   }));

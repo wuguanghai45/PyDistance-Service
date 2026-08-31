@@ -15,9 +15,18 @@
     <section class="notice"><strong>安全边界</strong>　取消只停止后续调度，不是硬件急停。异常任务需确认机器人停止、料箱和工位安全后解锁。实机前请确认低位时料箱仍对平台施加载荷。</section>
     <div class="service-bar"><button id="connect" type="button">连接服务</button><span id="system-status">连接中…</span></div>
     <p id="message" role="status" aria-live="polite"></p>
+    <section class="panel config-summary">
+      <div class="section-heading">
+        <div><span class="eyebrow">01 / RECIPE</span><h2>工位与工艺配置</h2></div>
+        <button id="open-config" type="button" aria-haspopup="dialog">配置工位与工艺</button>
+      </div>
+      <p class="config-summary-name" id="active-config-name">尚未选择工位配置</p>
+      <p class="hint config-summary-state" id="config-summary-state">请打开配置窗口，选择或创建工位配置</p>
+    </section>
     <div class="layout">
-      <section class="panel config-panel">
-        <div class="section-heading"><div><span class="eyebrow">01 / RECIPE</span><h2>工位与工艺配置</h2></div></div>
+      <dialog id="config-dialog" aria-labelledby="config-dialog-title">
+        <section class="config-dialog-panel">
+          <div class="section-heading config-dialog-heading"><div><span class="eyebrow">01 / RECIPE</span><h2 id="config-dialog-title">工位与工艺配置</h2></div><button id="close-config" class="secondary" type="button" aria-label="关闭工位与工艺配置窗口">关闭</button></div>
         <label>已保存版本 <select id="config-select"><option value="">选择工位配置</option></select></label>
         <div class="actions"><button id="delete-config" class="danger" type="button">删除当前配置</button></div>
         <form id="config-form">
@@ -31,7 +40,8 @@
           <details><summary>路线、反馈与高级参数</summary><p class="hint">approach_waypoints / exit_waypoints 为有序地码点列表。取箱、返回、归还为已确认的直线路段。取箱和归还动作完成后会自动继续；配置载荷字段时，会等待相应反馈，不猜测扫码内容或载荷字段。</p><label>高级配置 JSON <textarea id="advanced" rows="12" spellcheck="false"></textarea></label></details>
           <div class="actions"><button type="submit" id="save-config">保存新版本</button><span id="recipe-state">未保存</span></div>
         </form>
-      </section>
+        </section>
+      </dialog>
       <div class="right-column">
         <section class="panel">
           <div class="section-heading"><div><span class="eyebrow">02 / RUN</span><h2>启动标定</h2></div><span class="pill live">实机模式</span></div>

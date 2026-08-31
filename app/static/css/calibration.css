@@ -11,9 +11,19 @@ main { max-width: 1548px; margin: auto; padding: 24px; }
 .notice { padding: 13px 16px; background: #fff5df; border: 1px solid #ecd09c; border-radius: 8px; color: #76531a; line-height: 1.7; }
 .service-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
 .service-bar span { color: #586d80; }
-.layout { display: grid; grid-template-columns: minmax(500px, 1fr) minmax(500px, 1.06fr); gap: 22px; align-items: start; }
+.config-summary { margin-top: 22px; }
+.config-summary .section-heading { margin-bottom: 12px; }
+.config-summary-name { margin: 0 0 4px; color: #1a3d5c; font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.config-summary-state { margin: 0; }
+.layout { margin-top: 22px; }
 .right-column { display: grid; gap: 22px; }
 .panel { background: white; border: 1px solid #dce4eb; border-radius: 10px; padding: 24px; box-shadow: 0 2px 5px #16365105; }
+.config-dialog-panel { padding: 24px; }
+#config-dialog { width: min(1180px, calc(100vw - 32px)); max-width: none; max-height: calc(100vh - 32px); margin: auto; padding: 0; border: 1px solid #c9d7e2; border-radius: 10px; background: #fff; color: #182b43; box-shadow: 0 18px 52px #10263b40; }
+#config-dialog::backdrop { background: #10263b73; }
+#config-dialog[open] { display: block; }
+.config-dialog-panel { max-height: calc(100vh - 32px); overflow: auto; }
+.config-dialog-heading { position: sticky; z-index: 1; top: -24px; margin: -24px -24px 22px; padding: 24px 24px 16px; border-bottom: 1px solid #e8eef4; background: #fff; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
 label { display: grid; gap: 7px; color: #435b72; font-size: 12px; margin-bottom: 14px; }
 input, select, textarea, select option { font: inherit; color: #172e44; }
@@ -90,5 +100,4 @@ progress { display: block; width: 100%; height: 6px; border: none; border-radius
 .history-panel { margin-top: 22px; }
 footer { text-align: center; color: #7b8c9c; font-size: 11px; padding: 0 24px 30px; line-height: 1.8; }
 [hidden] { display: none !important; }
-@media(max-width: 1150px) { .layout { grid-template-columns: 1fr; }.config-panel { order: 0; } }
-@media(max-width: 620px) { main { padding: 14px; }.panel { padding: 16px; }.topbar { padding: 20px 16px; }.fields, .run-fields { grid-template-columns: 1fr; }.section-heading { flex-wrap: wrap; }.metrics strong { font-size: 17px; }.record-select-row button { padding-inline: 10px; } }
+@media(max-width: 620px) { main { padding: 14px; }.panel { padding: 16px; }.topbar { padding: 20px 16px; }.fields, .run-fields { grid-template-columns: 1fr; }.section-heading { flex-wrap: wrap; }.metrics strong { font-size: 17px; }.record-select-row button { padding-inline: 10px; } #config-dialog { width: calc(100vw - 16px); max-height: calc(100vh - 16px); } .config-dialog-panel { max-height: calc(100vh - 16px); padding: 16px; } .config-dialog-heading { top: -16px; margin: -16px -16px 18px; padding: 16px 16px 12px; } }
