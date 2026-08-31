@@ -38,7 +38,6 @@
   function handle(action) { return async (event) => { event?.preventDefault(); try { await action(event); } catch (error) { message(error.message, true); } }; }
   function updateStart() {
     $("start").disabled = !configId || dirty || !!stationOwner;
-    $("delete-config").disabled = !configId;
   }
   function markDirty() { dirty = true; $("recipe-state").textContent = "有未保存更改，请先保存新版本"; updateStart(); }
 
@@ -125,7 +124,9 @@
     const record = await json("/configs", readRecipe()); await refreshRecipes(); loadRecipe(record.config, record.id); message("工位配置已保存为新版本。");
   }));
   $("delete-config").addEventListener("click", handle(async () => {
-    if (!configId || !currentConfig) return;
+    if (!configId || !currentConfig) {
+      throw new Error("请先从“已保存版本”中选择要删除的配置");
+    }
     const name = currentConfig.name || "当前配置";
     if (!window.confirm(`确定删除配置“${name}”吗？已启动和历史标定任务不受影响。`)) return;
     await api(`/configs/${encodeURIComponent(configId)}`, undefined, "DELETE");
