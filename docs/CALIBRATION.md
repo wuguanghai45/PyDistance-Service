@@ -104,7 +104,7 @@ TLS 默认验证服务器证书及主机名，可通过 `MQTT_CA_FILE` 指定工
 | position_tolerance_mm | 50 | 坐标到位公差（含边界，默认 ±50 mm） |
 | orientation_tolerance_deg | 5 | 朝向到位公差（含边界，默认 ±5°；例如目标 90°、实际 91.910° 视为到位） |
 | lift_tolerance_mm | 3 | 举升到位公差 |
-| velocity / acceleration | 100 / 100 | 低速调试初始参数，最高配置限制 500 |
+| velocity / acceleration | 100 / 500 | 速度默认 100 mm/s、最高 1000 mm/s；加速度默认 500 mm/s²、最高 500 |
 | allow_set_origin | false | 是否允许按已确认的 start 设置原点 |
 | scan_valid_value | true | 固件 qrCodeStatus 的有效值；按真实报文配置 |
 | scan_code_field | null | 可选扫码内容字段，例如 `scannerStatus.scannerData`；配置后核对地码内容 |

@@ -454,14 +454,18 @@ def test_unknown_pose_can_initialize_without_fabricating_coordinates():
 
 def test_config_validation_and_snapshot_immutability(setup):
     svc, record, config, _ = setup
+    assert config.velocity == 100
+    assert config.acceleration == 500
     for changes in (
         {"high_height_mm": 0},
         {"settle_seconds": 0},
-        {"velocity": 10000},
+        {"velocity": 1001},
+        {"acceleration": 501},
         {"max_spread_mm": float("nan")},
     ):
         with pytest.raises(ValidationError):
             StationConfig.model_validate({**config.model_dump(), **changes})
+    StationConfig.model_validate({**config.model_dump(), "velocity": 1000, "acceleration": 500})
     data = config.model_dump()
     data["bin"]["y"] = 100
     with pytest.raises(ValidationError, match="同一直线"):
@@ -858,33 +862,17 @@ def test_missing_a1_does_not_fall_back_to_a0():
         svc._reading(demo_config(), now - 0.1)
 
 
-def test_raw_spread_is_checked_before_filtering(monkeypatch):
-    """Reproduce a 5.409 mm raw spread; no filter may conceal the failing window."""
-    now = time.monotonic()
-    # Identity conversion isolates the stability rule from voltage calibration.
-    monkeypatch.setattr("app.sensor.voltage_to_distance", lambda v: (v, "Normal"))
-    monkeypatch.setattr("app.sensor.apply_filter", lambda _: pytest.fail("filter called before quality check"))
-    samples = [(now - 0.01 * i, 1.0) for i in range(5, 0, -1)]
-    samples[-1] = (now - 0.01, 6.409)
-    with pytest.raises(ValueError, match="测量不稳定：窗口极差 5.409 mm"):
-        make_sensor(samples).calibration_reading(1, now - 0.1, 0.5, 5, 0.2, 3)
-
-
-@pytest.mark.parametrize("spread,accepted", [(3.632, True), (5.0, True), (5.001, False), (5.409, False)])
-def test_default_five_mm_spread_boundary(monkeypatch, spread, accepted):
-    """The default allows at most 5 mm spread without rounding the raw distances."""
+@pytest.mark.parametrize("spread", [3.632, 5.0, 5.001, 5.409])
+def test_window_spread_is_reported_but_not_rejected(monkeypatch, spread):
+    """Window spread is recorded for diagnostics and does not fail the reading."""
     now = time.monotonic()
     monkeypatch.setattr("app.sensor.voltage_to_distance", lambda v: (v, "Normal"))
     samples = [(now - 0.01 * i, 1.0) for i in range(5, 0, -1)]
     samples[-1] = (now - 0.01, 1.0 + spread)
     svc = CalibrationService(None, make_sensor(samples), Settings(_env_file=None))
-    if accepted:
-        reading = svc._reading(demo_config(), now - 0.1)
-        assert reading["spread_mm"] == pytest.approx(spread)
-        assert reading["voltages"][-1] == 1.0 + spread
-    else:
-        with pytest.raises(ValueError, match="测量不稳定"):
-            svc._reading(demo_config(), now - 0.1)
+    reading = svc._reading(demo_config(), now - 0.1)
+    assert reading["spread_mm"] == pytest.approx(spread)
+    assert reading["voltages"][-1] == 1.0 + spread
 
 
 def test_precision_sensor_filters_out_pre_settle_samples():
@@ -896,37 +884,17 @@ def test_precision_sensor_filters_out_pre_settle_samples():
     assert reading["voltages"] == [1.001] * 5
 
 
-def test_unstable_window_logs_every_selected_sample(monkeypatch, caplog):
-    """Print all 25 failing-window values, excluding old samples and other channels."""
+def test_large_spread_does_not_log_unstable_diagnostics(monkeypatch, caplog):
+    """A large window spread must still return a reading without a failure dump."""
     now = time.monotonic()
     values = [1.0 + (i % 3) * 0.1 for i in range(24)] + [4.632]
     selected = [(now - (25 - i) * 0.01, v) for i, v in enumerate(values)]
     sensor = make_sensor([(now - 0.8, 999.0)] + selected)
-    other = _ChannelState(0, 100)
-    other.samples.append((now - 0.01, 888.0))
-    sensor._states[0] = other
     monkeypatch.setattr("app.sensor.voltage_to_distance", lambda v: (v, "Normal"))
     with caplog.at_level("WARNING", logger="app.sensor"):
-        with pytest.raises(ValueError, match="窗口极差 3.632 mm"):
-            sensor.calibration_reading(1, now - 0.5, 0.5, 5, 0.2, 3)
-    prefix = "CALIBRATION_UNSTABLE_WINDOW "
-    records = [r.message for r in caplog.records if r.message.startswith(prefix)]
-    assert len(records) == 1
-    diagnostic = json.loads(records[0][len(prefix):])
-    assert diagnostic["channel"] == 1
-    assert diagnostic["hardware_channel"] == "ADS1115 A1"
-    assert diagnostic["sample_count"] == len(values)
-    assert diagnostic["quality_check"] == "before_filtering"
-    assert diagnostic["min_distance_mm"] == min(values)
-    assert diagnostic["max_distance_mm"] == max(values)
-    assert diagnostic["spread_mm"] == pytest.approx(3.632)
-    assert diagnostic["max_spread_mm"] == 3
-    assert [s["index"] for s in diagnostic["samples"]] == list(range(1, 26))
-    assert [s["sensor_voltage_v"] for s in diagnostic["samples"]] == values
-    assert [s["distance_mm"] for s in diagnostic["samples"]] == values
-    assert [s["offset_seconds"] for s in diagnostic["samples"]] == [
-        ts - selected[0][0] for ts, _ in selected
-    ]
+        reading = sensor.calibration_reading(1, now - 0.5, 0.5, 5, 0.2, 3)
+    assert reading["spread_mm"] == pytest.approx(3.632)
+    assert not any("CALIBRATION_UNSTABLE_WINDOW" in r.message for r in caplog.records)
 
 
 def test_stable_window_does_not_log_unstable_diagnostics(caplog):
@@ -939,7 +907,7 @@ def test_stable_window_does_not_log_unstable_diagnostics(caplog):
 
 
 @pytest.mark.parametrize(
-    "kind", ["stale", "insufficient", "out_of_range", "unstable", "failure"]
+    "kind", ["stale", "insufficient", "out_of_range", "failure"]
 )
 def test_sensor_rejects_bad_windows(kind):
     now = time.monotonic()
@@ -950,8 +918,6 @@ def test_sensor_rejects_bad_windows(kind):
         samples = samples[:2]
     if kind == "out_of_range":
         samples[-1] = (now, 11)
-    if kind == "unstable":
-        samples[-1] = (now, 2)
     sensor = make_sensor(samples, failures=1 if kind == "failure" else 0)
     with pytest.raises(ValueError):
         sensor.calibration_reading(1, now - 1, 0.5, 5, 0.2, 3)

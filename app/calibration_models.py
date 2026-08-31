@@ -56,7 +56,7 @@ class StationConfig(StrictModel):
     min_samples: int = Field(default=5, ge=2, le=1000)
     max_sample_age_seconds: float = Field(default=0.2, gt=0, le=2)
     max_spread_mm: float = Field(
-        default=5, gt=0, description="原始采样窗口极差上限（mm），不是读数分辨率或验收公差"
+        default=5, gt=0, description="保留字段：窗口极差仅记录，不再用于拒绝读数"
     )
     command_timeout_seconds: float = Field(default=60, ge=1, le=600)
     confirmation_timeout_seconds: float = Field(default=300, ge=5, le=1800)
@@ -64,8 +64,8 @@ class StationConfig(StrictModel):
     position_tolerance_mm: float = Field(default=50, gt=0, le=50)
     orientation_tolerance_deg: float = Field(default=5, gt=0, le=10)
     lift_tolerance_mm: float = Field(default=3, gt=0, le=20)
-    velocity: int = Field(default=100, gt=0, le=500)
-    acceleration: int = Field(default=100, gt=0, le=500)
+    velocity: int = Field(default=100, gt=0, le=1000)
+    acceleration: int = Field(default=500, gt=0, le=500)
     obstacle_avoidance: bool = True
     allow_set_origin: bool = False
     load_feedback_field: str | None = Field(default=None, max_length=100)

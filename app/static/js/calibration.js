@@ -9,7 +9,8 @@
   const process = {
     low_height_mm: ["低位指令 / mm", 0, 1000, 1],
     high_height_mm: ["高位指令 / mm", 1, 1000, 1], settle_seconds: ["稳定等待 / s", 2, 30, 0.1],
-    command_timeout_seconds: ["命令超时 / s", 1, 600, 1], velocity: ["移动速度 / mm/s", 1, 500, 1],
+    command_timeout_seconds: ["命令超时 / s", 1, 600, 1], velocity: ["移动速度 / mm/s", 1, 1000, 1],
+    acceleration: ["移动加速度 / mm/s²", 1, 500, 1],
   };
   const labels = { RUNNING: "执行中", CANCELLING: "取消中", COMPLETED: "流程完成", FAILED: "异常停止", CANCELLED: "已取消", INTERRUPTED: "重启中断", PASS: "合格", FAIL: "不合格", NOT_EVALUATED: "未配置标准", PENDING: "待采集" };
   let recipes = [], currentConfig = null, configId = null, currentTask = null, dirty = true;
