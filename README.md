@@ -84,6 +84,7 @@ PyDistance-Service/
 | SCL/SDA | 主机 I2C |
 
 > 分压系数 `DIVIDER_RATIO` 默认 `1.682`，需要根据实际分压电阻测量校正。`real_v = adc_v * DIVIDER_RATIO`。
+> 现场校正以旧界面显示的 ADC 换算距离 `a` 为输入，而不是 ADS1115 电压：`sensor_display_mm = ui_adc_mm × DISTANCE_CALIBRATION_SCALE + DISTANCE_CALIBRATION_OFFSET_MM`。其中输出对应传感器自身显示值 `o`；高度标定与实时界面共用此公式，并保留浮点精度。
 
 ### 启用 I2C（树莓派 / Linux 嵌入式）
 
@@ -241,6 +242,8 @@ sudo ./scripts/uninstall-autostart.sh
 | `D_MIN` / `D_MAX` | 50 / 2500 | 测量范围（mm），按传感器型号修改 |
 | `V_MAX` / `V_ERROR` | 10.0 / 10.1 | 满量程电压 / 超程阈值 |
 | `DIVIDER_RATIO` | 1.682 | 分压补偿系数 |
+| `DISTANCE_CALIBRATION_SCALE` | 0.99333765 | 旧界面 ADC 换算距离 `a` 到传感器显示 `o` 的校正比例 |
+| `DISTANCE_CALIBRATION_OFFSET_MM` | 18.552624 | 上述校正的偏移（mm） |
 | `I2C_ADDRESS` | 0x48 | ADS1115 地址 |
 | `ADS_CHANNELS` | `[1]` | 当前仅采集实际接线的 A1；已有部署需将 `.env` 中的旧值改为 `[1]` 并重启 |
 | `ADS_DATA_RATE` | 250 | ADS1115 SPS：8/16/32/64/128/250/475/860 |

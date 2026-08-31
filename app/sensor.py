@@ -29,14 +29,22 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 def voltage_to_distance(real_v: float) -> tuple[float | None, str]:
-    """Map real sensor voltage (V) to distance (mm) via linear interpolation.
+    """Map real sensor voltage (V) to the calibrated distance (mm).
 
-    Returns ``(distance_mm, status)``. ``distance_mm`` is ``None`` when the
-    target is invalid / out of range.
+    The nominal conversion is the ADC-derived distance formerly shown by the
+    UI. It is corrected to the sensor-display scale before being clamped to
+    the sensor's physical measurement range. Returns ``(distance_mm, status)``.
+    ``distance_mm`` is ``None`` when the target is invalid / out of range.
     """
     if real_v > settings.V_ERROR:
         return None, "Out of Range"
-    distance = settings.D_MIN + (real_v / settings.V_MAX) * (settings.D_MAX - settings.D_MIN)
+    ui_adc_distance = settings.D_MIN + (real_v / settings.V_MAX) * (
+        settings.D_MAX - settings.D_MIN
+    )
+    distance = (
+        ui_adc_distance * settings.DISTANCE_CALIBRATION_SCALE
+        + settings.DISTANCE_CALIBRATION_OFFSET_MM
+    )
     distance = max(settings.D_MIN, min(settings.D_MAX, distance))
     return distance, "Normal"
 

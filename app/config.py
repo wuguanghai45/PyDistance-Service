@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     V_MAX: float = 10.0
     V_ERROR: float = 10.1
     DIVIDER_RATIO: float = 1.682
+    # Field calibration: corrected_mm = ui_adc_mm * scale + offset, where
+    # ui_adc_mm is the former UI's ADC-derived distance display.
+    DISTANCE_CALIBRATION_SCALE: float = Field(default=0.99333765, gt=0)
+    DISTANCE_CALIBRATION_OFFSET_MM: float = 18.552624
 
     # --- ADS1115 hardware configuration ---
     # Hex string (e.g. "0x48") or integer are both accepted via validator.

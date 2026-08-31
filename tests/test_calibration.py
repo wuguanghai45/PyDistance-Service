@@ -32,9 +32,9 @@ from app.calibration_robot import (
 from app.calibration_routes import export_history, router, ws_router
 from app.calibration_service import CalibrationService
 from app.calibration_store import StationBusy, Store
-from app.config import Settings
+from app.config import Settings, settings
 from app.device_registry import DeviceRegistryError
-from app.sensor import SensorService, _ChannelState
+from app.sensor import SensorService, _ChannelState, voltage_to_distance
 
 
 class FakeSensor:
@@ -964,9 +964,31 @@ def test_precision_sensor_filters_out_pre_settle_samples():
     now = time.monotonic()
     samples = [(now - 0.4, 9)] + [(now - 0.01 * i, 1.001) for i in range(5, 0, -1)]
     reading = make_sensor(samples).calibration_reading(1, now - 0.1, 0.5, 5, 0.2, 3)
-    assert reading["distance_mm"] == pytest.approx(295.245)
+    assert reading["distance_mm"] == pytest.approx(311.83059847425, abs=1e-6)
     assert reading["samples_in_window"] == 5
     assert reading["voltages"] == [1.001] * 5
+
+
+@pytest.mark.parametrize(
+    ("app_distance_mm", "sensor_distance_mm"),
+    [
+        (1138, 1149),
+        (182, 200),
+        (265, 282),
+        (463, 479),
+        (318, 333),
+    ],
+)
+def test_field_distance_calibration_matches_sensor_display(
+    app_distance_mm, sensor_distance_mm
+):
+    """Apply the fitted field correction to each supplied comparison sample."""
+    raw_voltage = (app_distance_mm - settings.D_MIN) * settings.V_MAX / (
+        settings.D_MAX - settings.D_MIN
+    )
+    distance_mm, status = voltage_to_distance(raw_voltage)
+    assert status == "Normal"
+    assert distance_mm == pytest.approx(sensor_distance_mm, abs=1.5)
 
 
 def test_large_spread_does_not_log_unstable_diagnostics(monkeypatch, caplog):
