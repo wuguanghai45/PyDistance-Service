@@ -47,7 +47,7 @@ TLS 默认验证服务器证书及主机名，可通过 `MQTT_CA_FILE` 指定工
 
 网页实机选项在 `CALIBRATION_LIVE_ENABLED=true` 且 `MQTT_HOST` 已配置时启用，每次实机启动仍需确认现场安全条件。没有应用层身份认证，能够访问服务的人即可调用标定接口；请仅部署在可信工厂网络，使用防火墙或网关限制访问，不直接暴露公网。跨站浏览器请求仍被拒绝，但这不是用户鉴权。原 `/distance` 和 `/ws/distance` 保持原有只读行为。
 
-网页通过本服务的 `GET /api/v1/calibration/robots` 从 `ROBOT_DEVICE_API_URL`（默认 `http://10.0.81.109:8787/api/devices`）读取设备列表，只显示 `is_online=true` 且格式合法的 `robot_sn`。所选 `robotSN` 原样作为 MQTT 主题后缀，例如 `robot/state/ANT001`、`robot/commandSet/create/ANT001`。设备服务不可用时不会回退到手工输入；请恢复设备服务连接后重新连接标定页面。标识继续限制为字母、数字、下划线、点、冒号和连字符，禁止 MQTT 通配符及斜线。
+网页通过本服务的 `GET /api/v1/calibration/robots` 从 `ROBOT_DEVICE_API_URL`（默认 `http://10.0.81.109:8787/api/devices`）读取设备列表，只显示 `is_online=true` 且格式合法的 `robot_sn`。机器人选择器支持按 SN 模糊搜索（如 `K35`）及别名搜索；格式为 `K3xAyyAN` 的 SN 使用别名 `xyy`，例如 `K35A01AN` 为 `501`。选择器最终只提交实际 `robotSN`，它原样作为 MQTT 主题后缀，例如 `robot/state/ANT001`、`robot/commandSet/create/ANT001`。设备服务不可用时不会回退到手工输入；请恢复设备服务连接后重新连接标定页面。标识继续限制为字母、数字、下划线、点、冒号和连字符，禁止 MQTT 通配符及斜线。
 
 ### 2. 确认现场测量条件
 

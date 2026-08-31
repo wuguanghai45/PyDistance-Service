@@ -21,6 +21,13 @@ input, select, textarea { width: 100%; padding: 9px 10px; border: 1px solid #cbd
 input:focus, select:focus, textarea:focus { outline: 2px solid #83b9dd; outline-offset: 1px; }
 input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: #1268a1; }
 input:disabled { background: #f0f3f5; color: #9ca9b3; }
+.record-select { position: relative; }
+.record-select-options { position: absolute; z-index: 10; top: calc(100% + 4px); left: 0; right: 0; max-height: 244px; overflow: auto; border: 1px solid #b7c9d7; border-radius: 6px; background: #fff; box-shadow: 0 8px 18px #16365126; }
+.record-select-option { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 10px; color: #172e44; cursor: pointer; font-size: 13px; }
+.record-select-option + .record-select-option { border-top: 1px solid #edf1f4; }
+.record-select-option:hover, .record-select-option.active { background: #eaf4fb; }
+.record-select-option small { color: #718496; font-size: 11px; }
+.record-select-empty { padding: 10px; color: #718496; font-size: 12px; }
 textarea { font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; resize: vertical; }
 .fields { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); column-gap: 14px; }
 .check { display: flex; gap: 8px; align-items: start; line-height: 1.5; }

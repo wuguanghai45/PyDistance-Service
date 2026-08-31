@@ -16,6 +16,7 @@
   let recipes = [], currentConfig = null, configId = null, currentTask = null, dirty = true;
   let system = null, stationOwner = null, taskSocket = null, sensorSocket = null, reconnect = null, stopped = false;
   let currentView = null, generation = 0, seenEvents = new Set();
+  let robotRecords = [], robotPickerOpen = false, robotPickerActive = -1;
 
   function el(tag, text, attrs = {}) {
     const node = document.createElement(tag);
@@ -334,16 +335,99 @@
   }
   async function refreshRobots() {
     const selected = $("identity").value;
-    $("identity").disabled = true;
+    const search = $("identity-search");
+    search.disabled = true;
+    search.placeholder = "正在载入在线机器人…";
+    $("identity").value = "";
+    closeRobotPicker();
     updateStart();
     const { robot_sns: robotSns } = await json("/robots");
-    $("identity").replaceChildren(el("option", robotSns.length ? "选择在线机器人" : "没有在线机器人", { value: "" }));
-    robotSns.forEach((robotSn) => $("identity").append(el("option", robotSn, { value: robotSn })));
-    $("identity").disabled = !robotSns.length;
-    if (robotSns.includes(selected)) $("identity").value = selected;
+    robotRecords = robotSns.map((robotSn) => ({ sn: robotSn, alias: robotAlias(robotSn) }));
+    search.disabled = !robotRecords.length;
+    search.placeholder = robotRecords.length ? "输入 SN 或别名，例如 K35、501" : "没有在线机器人";
+    if (selected && robotRecords.some((record) => record.sn === selected)) selectRobot(selected);
+    else search.value = "";
     updateStart();
   }
-  $("identity").addEventListener("change", updateStart);
+  function robotAlias(robotSn) {
+    const match = /^K3(\d)A(\d{2})AN$/i.exec(robotSn);
+    return match ? `${match[1]}${match[2]}` : "";
+  }
+  function matchingRobots() {
+    const query = $("identity-search").value.trim().toUpperCase();
+    if (!query) return robotRecords;
+    return robotRecords.filter((record) => record.sn.toUpperCase().includes(query) || record.alias.includes(query));
+  }
+  function closeRobotPicker() {
+    robotPickerOpen = false;
+    robotPickerActive = -1;
+    $("identity-options").hidden = true;
+    $("identity-search").setAttribute("aria-expanded", "false");
+    $("identity-search").removeAttribute("aria-activedescendant");
+  }
+  function renderRobotPicker() {
+    const options = $("identity-options");
+    const matches = matchingRobots();
+    if (robotPickerActive >= matches.length) robotPickerActive = -1;
+    options.replaceChildren();
+    if (!matches.length) {
+      options.append(el("div", "没有匹配的在线机器人", { class: "record-select-empty" }));
+    } else {
+      matches.forEach((record, index) => {
+        const option = el("div", null, { id: `identity-option-${index}`, class: `record-select-option${index === robotPickerActive ? " active" : ""}`, role: "option", "aria-selected": String(record.sn === $("identity").value) });
+        option.append(el("span", record.sn));
+        if (record.alias) option.append(el("small", `别名 ${record.alias}`));
+        option.addEventListener("mousedown", (event) => event.preventDefault());
+        option.addEventListener("click", () => selectRobot(record.sn));
+        options.append(option);
+      });
+    }
+    options.hidden = !robotPickerOpen;
+    const search = $("identity-search");
+    search.setAttribute("aria-expanded", String(robotPickerOpen));
+    if (robotPickerActive >= 0) search.setAttribute("aria-activedescendant", `identity-option-${robotPickerActive}`);
+    else search.removeAttribute("aria-activedescendant");
+  }
+  function openRobotPicker() {
+    if ($("identity-search").disabled) return;
+    robotPickerOpen = true;
+    renderRobotPicker();
+  }
+  function selectRobot(robotSn) {
+    const record = robotRecords.find((item) => item.sn === robotSn);
+    if (!record) return;
+    $("identity").value = record.sn;
+    $("identity-search").value = record.sn;
+    closeRobotPicker();
+    updateStart();
+  }
+  $("identity-search").addEventListener("focus", openRobotPicker);
+  $("identity-search").addEventListener("input", () => {
+    $("identity").value = "";
+    robotPickerActive = -1;
+    robotPickerOpen = true;
+    renderRobotPicker();
+    updateStart();
+  });
+  $("identity-search").addEventListener("keydown", (event) => {
+    const matches = matchingRobots();
+    if (event.key === "Escape") { closeRobotPicker(); return; }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!robotPickerOpen) robotPickerOpen = true;
+      if (matches.length) robotPickerActive = event.key === "ArrowDown"
+        ? (robotPickerActive + 1 + matches.length) % matches.length
+        : (robotPickerActive - 1 + matches.length) % matches.length;
+      renderRobotPicker();
+      return;
+    }
+    if (event.key === "Enter" && robotPickerOpen) {
+      event.preventDefault();
+      const record = matches[robotPickerActive >= 0 ? robotPickerActive : 0];
+      if (record) selectRobot(record.sn);
+    }
+  });
+  $("identity-search").addEventListener("blur", () => setTimeout(closeRobotPicker, 120));
   $("connect").addEventListener("click", handle(connect));
   const clock = setInterval(() => {
     if (!currentTask?.wait_until) {
