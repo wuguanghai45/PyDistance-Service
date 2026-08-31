@@ -126,12 +126,32 @@ async def tasks(
     ]
 
 
+@router.delete("/tasks")
+async def clear_tasks(svc: CalibrationService = Depends(service)) -> dict:
+    """Delete all unlocked historical tasks and their audit events."""
+    try:
+        return {"deleted": svc.store.clear_tasks()}
+    except StationBusy as exc:
+        raise translate_error(exc) from exc
+
+
 @router.get("/tasks/{task_id}")
 async def task(task_id: str, svc: CalibrationService = Depends(service)) -> dict:
     """Return progress, eight-point results and frozen recipe/baseline."""
     try:
         return svc.snapshot(task_id)
     except KeyError as exc:
+        raise translate_error(exc) from exc
+
+
+@router.delete("/tasks/{task_id}", status_code=204)
+async def delete_task(
+    task_id: str, svc: CalibrationService = Depends(service)
+) -> None:
+    """Delete one unlocked historical task and its associated audit events."""
+    try:
+        svc.store.delete_task(task_id)
+    except (KeyError, StationBusy) as exc:
         raise translate_error(exc) from exc
 
 

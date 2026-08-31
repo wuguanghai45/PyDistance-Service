@@ -248,6 +248,23 @@
     const task = await json(`/tasks/${id}`); if (gen !== generation) return; renderTask(task);
     connectTask(id, gen);
   }
+  function clearTaskView(taskId) {
+    if (currentView !== taskId) return;
+    currentView = null; currentTask = null; generation += 1; seenEvents = new Set();
+    clearTimeout(reconnect); if (taskSocket) { taskSocket.onclose = null; taskSocket.close(); taskSocket = null; }
+    $("task-title").textContent = "等待标定任务"; $("task-status").textContent = "空闲";
+    $("task-meta").textContent = "空载：ALN → AHN → BHN → BLN　负载：BHY → BLY → ALY → AHY";
+    $("baseline").textContent = "—"; $("countdown").textContent = "—"; $("verdict").textContent = "待采集";
+    $("task-error").hidden = true; $("confirm-step").hidden = true; $("release").hidden = true;
+    $("cancel").disabled = true; $("export").disabled = true; $("export-json").disabled = true;
+    $("measurements").replaceChildren();
+    for (const key of order) {
+      const row = el("tr", null);
+      [key, "—", "—", "—", "待采集"].forEach((value) => row.append(el("td", value)));
+      $("measurements").append(row);
+    }
+    $("events").replaceChildren();
+  }
   function connectTask(id, gen) {
     const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/calibration/${id}`); taskSocket = ws;
     ws.onmessage = (event) => {
@@ -280,14 +297,31 @@
   }));
   async function refreshHistory() {
     const list = await json("/tasks"); $("history").replaceChildren();
+    if (!list.length) {
+      const row = el("tr", null), cell = el("td", "暂无历史标定记录", { colspan: "6" });
+      row.append(cell); $("history").append(row); return;
+    }
     list.forEach((task) => {
       const row = el("tr", null);
       [new Date(task.created_at).toLocaleString(), task.robot_label, task.mode === "simulation" ? "模拟" : "实机", labels[task.status], labels[task.verdict]].forEach((v) => row.append(el("td", v)));
-      const cell = el("td", null), button = el("button", "查看", { type: "button", class: "secondary" });
-      button.addEventListener("click", handle(() => viewTask(task.id))); cell.append(button); row.append(cell); $("history").append(row);
+      const cell = el("td", null), actions = el("div", null, { class: "table-actions" });
+      const view = el("button", "查看", { type: "button", class: "secondary" });
+      const remove = el("button", "删除", { type: "button", class: "danger" });
+      view.addEventListener("click", handle(() => viewTask(task.id)));
+      remove.addEventListener("click", handle(async () => {
+        if (!window.confirm(`确定删除 ${task.robot_label} 于 ${new Date(task.created_at).toLocaleString()} 的标定记录吗？此操作不可恢复。`)) return;
+        await api(`/tasks/${encodeURIComponent(task.id)}`, undefined, "DELETE");
+        clearTaskView(task.id); await refreshHistory(); message("历史标定记录已删除。");
+      }));
+      actions.append(view, remove); cell.append(actions); row.append(cell); $("history").append(row);
     });
   }
   $("refresh-history").addEventListener("click", handle(refreshHistory));
+  $("clear-history").addEventListener("click", handle(async () => {
+    if (!window.confirm("确定清理全部历史标定数据吗？所有任务记录及审计事件将永久删除，且无法恢复。")) return;
+    const result = await (await api("/tasks", undefined, "DELETE")).json();
+    clearTaskView(currentView); await refreshHistory(); message(`已清理 ${result.deleted} 条历史标定记录。`);
+  }));
   async function connect() {
     system = await json("/system"); stationOwner = system.station_owner;
     $("system-status").textContent = system.live_enabled ? "服务在线 · 实机已启用" : "服务在线 · 仅模拟可用（实机未启用）";

@@ -71,6 +71,29 @@ def request(record, **kwargs):
     return StartRequest(config_id=record["id"], identity="ANT-TEST", **kwargs)
 
 
+def test_history_deletion_removes_events_and_rejects_station_owner(tmp_path):
+    """Keep locked-task evidence until an operator explicitly releases the station."""
+    store = Store(str(tmp_path / "history.sqlite3"))
+    try:
+        for task_id in ("first", "second"):
+            store.create_task({"id": task_id})
+            store.release(task_id)
+            store.event(task_id, "test", {"task": task_id})
+        store.delete_task("first")
+        assert store.list_tasks() == [{"id": "second"}]
+        assert store.events("first") == []
+        assert store.clear_tasks() == 1
+        assert store.list_tasks() == []
+
+        store.create_task({"id": "locked"})
+        with pytest.raises(StationBusy):
+            store.delete_task("locked")
+        with pytest.raises(StationBusy):
+            store.clear_tasks()
+    finally:
+        store.close()
+
+
 def test_full_simulation_order_motion_and_precision(setup):
     """Exercise all eight measurements, box legs, return and final station release."""
 
@@ -1059,3 +1082,6 @@ def test_api_without_token_and_websocket_without_handshake(tmp_path):
             ).status_code
             == 422
         )
+        assert client.delete(f"/api/v1/calibration/tasks/{task_id}").status_code == 204
+        assert client.get(f"/api/v1/calibration/tasks/{task_id}").status_code == 404
+        assert client.delete("/api/v1/calibration/tasks").json() == {"deleted": 0}

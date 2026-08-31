@@ -149,6 +149,35 @@ class Store:
             )
         ]
 
+    def delete_task(self, task_id: str) -> None:
+        """Delete one unlocked task and all audit events recorded for it.
+
+        A station-owning task cannot be removed because it may still need a safety
+        acknowledgement and explicit release before another task can start.
+        """
+        with self.db:
+            if self.owner() == task_id:
+                raise StationBusy("工位仍被该任务占用；请先完成任务或确认安全后解锁")
+            deleted = self.db.execute(
+                "DELETE FROM tasks WHERE id=?", (task_id,)
+            ).rowcount
+            if not deleted:
+                raise KeyError(task_id)
+            self.db.execute("DELETE FROM events WHERE task_id=?", (task_id,))
+
+    def clear_tasks(self) -> int:
+        """Delete every unlocked historical task and its audit events.
+
+        Clearing is rejected while the station has an owner so operational safety
+        records remain available until the task is explicitly released.
+        """
+        with self.db:
+            if self.owner() is not None:
+                raise StationBusy("工位仍被任务占用；请先完成任务或确认安全后解锁")
+            deleted = self.db.execute("DELETE FROM tasks").rowcount
+            self.db.execute("DELETE FROM events")
+        return deleted
+
     def release(self, task_id: str) -> None:
         """Release only the matching owner; never unlock another task."""
         with self.db:

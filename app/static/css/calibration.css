@@ -32,6 +32,8 @@ button.secondary { border-color: #c6d5e1; background: #f8fafc; color: #30516c; }
 button.danger { border-color: #ecc1bb; background: #fff7f5; color: #a33f34; }
 .actions { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; margin-top: 18px; }
 .actions span { color: #65798d; font-size: 12px; }
+.section-heading .actions { margin-top: 0; }
+.table-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .hint { color: #778797; font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
 .sensor-line { font-size: 12px; color: #5c798e; border-top: 1px solid #e8eef4; padding-top: 15px; }
 .table-scroll { overflow-x: auto; }
