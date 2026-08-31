@@ -170,14 +170,20 @@ class LiveRobot:
         self.success_sequence: int | None = None
         self._theoretical_state = theoretical_pose(config, config.low_height_mm)
 
+    @property
+    def theoretical_state(self) -> dict:
+        """Return the current theoretical pose used for command envelopes."""
+        return pose_from_command_state(self._theoretical_state)
+
     def _commit_theoretical(self, future_state: dict) -> None:
         """Advance the command chain to the just-completed theoretical pose."""
         self._theoretical_state = pose_from_command_state(future_state)
 
     def seed_theoretical_from_start(self, lift_height: float | int | None = None) -> None:
-        """Anchor the command chain at the configured start pose."""
-        if lift_height is None:
-            lift_height = self.state.get("liftHeight", self.config.low_height_mm)
+        """Anchor the command chain at the configured start pose.
+
+        Always uses configured theoretical values; never copies live telemetry.
+        """
         self._theoretical_state = start_theoretical_pose(self.config, lift_height)
 
     async def start(self) -> None:
@@ -405,6 +411,11 @@ class SimRobot:
         self.connected = True
         self.received_at = time.monotonic()
 
+    @property
+    def theoretical_state(self) -> dict:
+        """Return the current theoretical pose used for command envelopes."""
+        return pose_from_command_state(self._theoretical_state)
+
     def guard(self) -> None:
         """Reject use after the simulation session closed."""
         if not self.connected:
@@ -415,9 +426,10 @@ class SimRobot:
         self._theoretical_state = pose_from_command_state(future_state)
 
     def seed_theoretical_from_start(self, lift_height: float | int | None = None) -> None:
-        """Anchor the command chain at the configured start pose."""
-        if lift_height is None:
-            lift_height = self.state.get("liftHeight", self.config.low_height_mm)
+        """Anchor the command chain at the configured start pose.
+
+        Always uses configured theoretical values; never copies live telemetry.
+        """
         self._theoretical_state = start_theoretical_pose(self.config, lift_height)
 
     async def command(self, action: str, **target) -> None:

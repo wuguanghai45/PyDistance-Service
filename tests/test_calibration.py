@@ -505,7 +505,7 @@ def live_adapter(config=None):
         "qrCodeStatus": True,
     }
     robot.ingest("robot/state/ANT", state)
-    robot.seed_theoretical_from_start(state["liftHeight"])
+    robot.seed_theoretical_from_start()
     return robot, state
 
 
@@ -552,17 +552,82 @@ def test_build_command_chains_theoretical_states():
 def test_first_motion_command_uses_start_theoretical_expected_state():
     config = demo_config()
     robot, state = live_adapter(config)
-    body = build_command(
+    # Live telemetry differs from theoretical start; envelopes must ignore it.
+    robot.ingest(
+        "robot/state/ANT",
+        {
+            **state,
+            "coordX": state["coordX"] + 27,
+            "coordY": state["coordY"] - 19,
+            "orientation": state["orientation"] + 54,
+            "liftHeight": state["liftHeight"] + 12,
+        },
+    )
+    robot.seed_theoretical_from_start()
+    start = start_theoretical_pose(config)
+    assert robot.theoretical_state == start
+    lift = build_command(
         "ANT",
         "LIFT",
-        robot._theoretical_state,
+        robot.theoretical_state,
         config,
-        liftHeight=config.low_height_mm,
+        liftHeight=config.high_height_mm,
+    )["robotCommands"][0]
+    assert pose_from_command_state(lift["expectedState"]) == start
+    assert pose_from_command_state(lift["futureState"]) == {
+        **start,
+        "liftHeight": config.high_height_mm,
+    }
+    assert lift["commandContent"]["coordX"] == start["coordX"]
+    assert lift["commandContent"]["orientation"] == start["orientation"]
+    spin = build_command(
+        "ANT",
+        "SPIN",
+        pose_from_command_state(lift["futureState"]),
+        config,
+        orientation=18000,
+    )["robotCommands"][0]
+    assert pose_from_command_state(spin["expectedState"]) == pose_from_command_state(
+        lift["futureState"]
     )
-    command = body["robotCommands"][0]
-    assert pose_from_command_state(command["expectedState"]) == start_theoretical_pose(
-        config, state["liftHeight"]
-    )
+    assert spin["commandContent"]["coordX"] == start["coordX"]
+    assert spin["commandContent"]["liftHeight"] == config.high_height_mm
+    assert spin["futureState"]["orientation"] == 18000
+
+
+def test_simulation_commands_chain_theoretical_envelopes(setup):
+    """Every MOVE/SPIN/LIFT expectedState is the prior futureState, never live pose."""
+
+    async def run():
+        svc, record, config, _ = setup
+        started = await svc.start(request(record))
+        await svc.worker
+        task = svc.snapshot(started["id"])
+        assert task["status"] == "COMPLETED", task["error"]
+        commands = [
+            e["data"]["payload"]["robotCommands"][0]
+            for e in svc.store.events(task["id"])
+            if e["kind"] == "command_sent"
+        ]
+        motion = [
+            c
+            for c in commands
+            if c["commandContent"]["robotCommandType"] in ("MOVE", "SPIN", "LIFT")
+        ]
+        assert pose_from_command_state(motion[0]["expectedState"]) == start_theoretical_pose(
+            config
+        )
+        previous = pose_from_command_state(motion[0]["futureState"])
+        for command in motion[1:]:
+            assert pose_from_command_state(command["expectedState"]) == previous
+            previous = pose_from_command_state(command["futureState"])
+            content = command["commandContent"]
+            assert content["coordX"] == previous["coordX"]
+            assert content["coordY"] == previous["coordY"]
+            assert content["orientation"] == previous["orientation"]
+            assert content["liftHeight"] == previous["liftHeight"]
+
+    asyncio.run(run())
 
 
 def test_robot_diagnostics_matches_idle_gate():

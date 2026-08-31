@@ -389,15 +389,19 @@ class CalibrationService:
     async def _transit(
         self, points: list[Point], prefix: str, config: StationConfig
     ) -> None:
-        """Follow configured waypoints using explicit straight legs and final headings."""
+        """Follow configured waypoints using explicit straight legs and final headings.
+
+        Travel headings and spin decisions use the theoretical command chain, not
+        live telemetry. Live pose is only checked after each waypoint arrives.
+        """
         for index, point in enumerate(points):
             self._step(f"{prefix}_{index}", f"前往地码 {point.code}")
-            state = self.robot.state
-            dx, dy = point.x - state["coordX"], point.y - state["coordY"]
+            pose = self.robot.theoretical_state
+            dx, dy = point.x - pose["coordX"], point.y - pose["coordY"]
             if math.hypot(dx, dy) > 0.1:
                 heading = math.degrees(math.atan2(dy, dx)) % 360
                 if (
-                    angle_error(state["orientation"] / 100, heading)
+                    angle_error(pose["orientation"] / 100, heading)
                     > config.orientation_tolerance_deg
                 ):
                     await self.robot.command("SPIN", orientation=round(heading * 100))
@@ -408,7 +412,9 @@ class CalibrationService:
                     orientation=round(heading * 100),
                 )
             if (
-                angle_error(self.robot.state["orientation"] / 100, point.orientation)
+                angle_error(
+                    self.robot.theoretical_state["orientation"] / 100, point.orientation
+                )
                 > config.orientation_tolerance_deg
             ):
                 await self.robot.command(
@@ -427,7 +433,7 @@ class CalibrationService:
             else (config.calibration.orientation + 180) % 360
         )
         if (
-            angle_error(self.robot.state["orientation"] / 100, orientation)
+            angle_error(self.robot.theoretical_state["orientation"] / 100, orientation)
             > config.orientation_tolerance_deg
         ):
             raise ValueError("取放箱行驶前朝向错误")
