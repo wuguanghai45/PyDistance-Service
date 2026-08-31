@@ -336,18 +336,24 @@
   async function refreshRobots() {
     const selected = $("identity").value;
     const search = $("identity-search");
+    const refreshButton = $("refresh-robots");
     search.disabled = true;
     search.placeholder = "正在载入在线机器人…";
+    refreshButton.disabled = true;
     $("identity").value = "";
     closeRobotPicker();
     updateStart();
-    const { robot_sns: robotSns } = await json("/robots");
-    robotRecords = robotSns.map((robotSn) => ({ sn: robotSn, alias: robotAlias(robotSn) }));
-    search.disabled = !robotRecords.length;
-    search.placeholder = robotRecords.length ? "输入 SN 或别名，例如 K35、501" : "没有在线机器人";
-    if (selected && robotRecords.some((record) => record.sn === selected)) selectRobot(selected);
-    else search.value = "";
-    updateStart();
+    try {
+      const { robot_sns: robotSns } = await json("/robots");
+      robotRecords = robotSns.map((robotSn) => ({ sn: robotSn, alias: robotAlias(robotSn) }));
+      search.disabled = !robotRecords.length;
+      search.placeholder = robotRecords.length ? "输入 SN 或别名，例如 K35、501" : "没有在线机器人";
+      if (selected && robotRecords.some((record) => record.sn === selected)) selectRobot(selected);
+      else search.value = "";
+      updateStart();
+    } finally {
+      refreshButton.disabled = false;
+    }
   }
   function robotAlias(robotSn) {
     const match = /^K3(\d)A(\d{2})AN$/i.exec(robotSn);
@@ -428,6 +434,10 @@
     }
   });
   $("identity-search").addEventListener("blur", () => setTimeout(closeRobotPicker, 120));
+  $("refresh-robots").addEventListener("click", handle(async () => {
+    await refreshRobots();
+    message(robotRecords.length ? `已刷新 ${robotRecords.length} 台在线机器人。` : "当前没有在线机器人。");
+  }));
   $("connect").addEventListener("click", handle(connect));
   const clock = setInterval(() => {
     if (!currentTask?.wait_until) {
