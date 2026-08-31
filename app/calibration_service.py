@@ -43,6 +43,24 @@ class CalibrationService:
             config.max_spread_mm,
         )
 
+    def _apply_empty_test_sensor_offset(self, key: str, reading: dict) -> dict:
+        """Add the configured distance compensation to one no-load measurement.
+
+        The raw hardware reading is retained in the task record for auditability.
+        Ground baseline collection and loaded (``Y``) measurements deliberately do
+        not use this compensation.
+        """
+        if not key.endswith("N"):
+            return reading
+        offset = self.settings.EMPTY_TEST_SENSOR_OFFSET_MM
+        if offset == 0:
+            return reading
+        adjusted = reading.copy()
+        adjusted["raw_distance_mm"] = reading["distance_mm"]
+        adjusted["empty_test_sensor_offset_mm"] = offset
+        adjusted["distance_mm"] = reading["distance_mm"] + offset
+        return adjusted
+
     @staticmethod
     def _sim_reading(channel: int, height: float = 0) -> dict:
         """Return explicitly synthetic data, separate from the physical sensor API."""
@@ -503,6 +521,7 @@ class CalibrationService:
             reading = self._sim_reading(config.sensor_channel, height)
         else:
             reading = self._reading(config, since)
+            reading = self._apply_empty_test_sensor_offset(key, reading)
         baseline = self.current["baseline"]["distance_mm"]
         height = baseline - reading["distance_mm"]
         if height <= 0:

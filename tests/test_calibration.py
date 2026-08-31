@@ -419,6 +419,37 @@ def test_live_box_transitions_continue_without_manual_confirmation(setup):
     asyncio.run(run())
 
 
+def test_empty_measurements_apply_configured_sensor_offset_only(setup):
+    """Apply black-sheet compensation only to live no-load measurement readings."""
+
+    async def run():
+        svc, record, _, _ = setup
+        enable_fake_live(svc)
+
+        async def fast_wait(seconds, expected, config):
+            svc._assert_idle()
+            assert target_matches(svc.robot.state, expected, config)
+
+        svc._wait_still = fast_wait
+        task = await svc.start(live_request(record))
+        await svc.worker
+        result = svc.snapshot(task["id"])
+
+        for key in ("ALN", "AHN", "BHN", "BLN"):
+            reading = result["measurements"][key]["reading"]
+            assert reading["raw_distance_mm"] == 1750
+            assert reading["empty_test_sensor_offset_mm"] == 3
+            assert reading["distance_mm"] == 1753
+        for key in ("BHY", "BLY", "ALY", "AHY"):
+            reading = result["measurements"][key]["reading"]
+            assert reading["distance_mm"] == 1750
+            assert "raw_distance_mm" not in reading
+            assert "empty_test_sensor_offset_mm" not in reading
+        assert result["baseline"]["distance_mm"] == 2000
+
+    asyncio.run(run())
+
+
 def test_sensor_failure_after_partial_live_run_keeps_lock(setup):
     """A stale measurement cannot reuse prior data or silently continue to take the box."""
 

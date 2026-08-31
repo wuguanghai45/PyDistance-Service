@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     # Live control is opt-in; access is controlled by the deployment network.
     CALIBRATION_DB: str = "data/calibration.sqlite3"
     CALIBRATION_LIVE_ENABLED: bool = False
+    # Black sheet-metal targets need a small compensation during the four
+    # no-load (N) height measurements.  The value is added to distance in mm.
+    EMPTY_TEST_SENSOR_OFFSET_MM: float = Field(default=3.0, ge=0)
     MQTT_HOST: str = ""
     MQTT_PORT: int = 1883
     MQTT_USERNAME: str = ""

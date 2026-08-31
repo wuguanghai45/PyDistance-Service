@@ -244,6 +244,7 @@ sudo ./scripts/uninstall-autostart.sh
 | `DIVIDER_RATIO` | 1.682 | 分压补偿系数 |
 | `DISTANCE_CALIBRATION_SCALE` | 0.99333765 | 旧界面 ADC 换算距离 `a` 到传感器显示 `o` 的校正比例 |
 | `DISTANCE_CALIBRATION_OFFSET_MM` | 18.552624 | 上述校正的偏移（mm） |
+| `EMPTY_TEST_SENSOR_OFFSET_MM` | 3.0 | 仅八项标定的空载 N 项（ALN/AHN/BHN/BLN）增加的传感器距离补偿；设为 `0` 可关闭，不影响地面基准、负载 Y 项或实时接口 |
 | `I2C_ADDRESS` | 0x48 | ADS1115 地址 |
 | `ADS_CHANNELS` | `[1]` | 当前仅采集实际接线的 A1；已有部署需将 `.env` 中的旧值改为 `[1]` 并重启 |
 | `ADS_DATA_RATE` | 250 | ADS1115 SPS：8/16/32/64/128/250/475/860 |
