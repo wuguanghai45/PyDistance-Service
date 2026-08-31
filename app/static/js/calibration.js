@@ -326,6 +326,9 @@
     while (true) { const page = await json(`/tasks/${currentView}/events?after=${cursor}`); events.push(...page); if (page.length < 500) break; cursor = page.at(-1).seq; }
     download(new Blob([JSON.stringify({ task: record, events }, null, 2)], { type: "application/json" }), `calibration-${currentView}.json`);
   }));
+  $("export-history").addEventListener("click", handle(async () => {
+    download(await (await api("/tasks/export")).blob(), "calibration-history.csv");
+  }));
   async function refreshHistory() {
     const list = await json("/tasks"); $("history").replaceChildren();
     if (!list.length) {

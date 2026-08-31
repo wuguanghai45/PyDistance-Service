@@ -151,6 +151,45 @@ async def tasks(
     ]
 
 
+@router.get("/tasks/export")
+async def export_history(svc: CalibrationService = Depends(service)) -> Response:
+    """Export one CSV row per retained task with robotSN and eight measured heights."""
+    stream = io.StringIO(newline="")
+    writer = csv.writer(stream)
+    measurement_keys = ("ALN", "AHN", "BHN", "BLN", "BHY", "BLY", "ALY", "AHY")
+    writer.writerow(
+        [
+            "robotSN",
+            "开始时间",
+            "任务状态",
+            "验收结果",
+            *measurement_keys,
+        ]
+    )
+    for record in svc.store.list_tasks(100000):
+        measurements = record.get("measurements", {})
+        writer.writerow(
+            [
+                csv_safe(value)
+                for value in [
+                    record.get("identity", record.get("robot_label", "")),
+                    record.get("created_at", ""),
+                    record.get("status", ""),
+                    record.get("verdict", ""),
+                    *[
+                        measurements.get(key, {}).get("height_mm", "")
+                        for key in measurement_keys
+                    ],
+                ]
+            ]
+        )
+    return Response(
+        "\ufeff" + stream.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="calibration-history.csv"'},
+    )
+
+
 @router.delete("/tasks")
 async def clear_tasks(svc: CalibrationService = Depends(service)) -> dict:
     """Delete all unlocked historical tasks and their audit events."""

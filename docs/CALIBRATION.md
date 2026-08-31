@@ -173,6 +173,7 @@ SQLite 目录需可写。Docker 部署应把 `/app/data` 作为持久卷；不�
 | POST /configs | 保存新配置版本 |
 | POST /tasks | 启动实机标定；仅接受 `mode=live` |
 | GET /tasks?limit=50 | 历史摘要，最多 200 条 |
+| GET /tasks/export | 历史汇总 CSV；每个任务一行，包含 robotSN、开始时间、任务状态、验收结果和八项高度 |
 | GET /tasks/{id} | 完整任务快照与实时状态 |
 | GET /tasks/{id}/result | 完整或部分测量值 |
 | GET /tasks/{id}/events?after=0 | 顺序事件，500 条一页，以最后 seq 继续读取 |

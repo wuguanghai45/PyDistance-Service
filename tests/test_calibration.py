@@ -1,6 +1,8 @@
 """Hardware-free acceptance, audit, protocol-correlation and sensor-quality tests."""
 
 import asyncio
+import csv
+import io
 import json
 import time
 from collections import deque
@@ -27,7 +29,7 @@ from app.calibration_robot import (
     target_matches,
     theoretical_pose,
 )
-from app.calibration_routes import router, ws_router
+from app.calibration_routes import export_history, router, ws_router
 from app.calibration_service import CalibrationService
 from app.calibration_store import StationBusy, Store
 from app.config import Settings
@@ -94,6 +96,55 @@ def test_history_deletion_removes_events_and_rejects_station_owner(tmp_path):
             store.clear_tasks()
     finally:
         store.close()
+
+
+def test_history_csv_keeps_partial_measurements_as_empty_cells(setup):
+    """Export absent historical height results as empty cells in their fixed columns."""
+    svc, _, _, _ = setup
+    task = {
+        "id": "partial-history",
+        "identity": "ANT-PARTIAL",
+        "created_at": "2026-08-31T00:00:00+00:00",
+        "status": "FAILED",
+        "verdict": "PENDING",
+        "measurements": {"ALN": {"height_mm": 123.45}},
+    }
+    svc.store.create_task(task)
+    svc.store.release(task["id"])
+
+    response = asyncio.run(export_history(svc))
+    rows = list(csv.reader(io.StringIO(response.body.decode().removeprefix("\ufeff"))))
+
+    assert rows == [
+        [
+            "robotSN",
+            "开始时间",
+            "任务状态",
+            "验收结果",
+            "ALN",
+            "AHN",
+            "BHN",
+            "BLN",
+            "BHY",
+            "BLY",
+            "ALY",
+            "AHY",
+        ],
+        [
+            "ANT-PARTIAL",
+            "2026-08-31T00:00:00+00:00",
+            "FAILED",
+            "PENDING",
+            "123.45",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ],
+    ]
 
 
 def test_full_simulation_order_motion_and_precision(setup):
@@ -1038,14 +1089,45 @@ def test_api_without_token_and_websocket_without_handshake(tmp_path, monkeypatch
                     break
         result = client.get(f"/api/v1/calibration/tasks/{task_id}/result").json()
         assert len(result["measurements"]) == 8
-        csv = client.get(f"/api/v1/calibration/tasks/{task_id}/export")
-        assert "live,COMPLETED" in csv.text
+        task_csv = client.get(f"/api/v1/calibration/tasks/{task_id}/export")
+        assert "live,COMPLETED" in task_csv.text
+        history_csv = client.get("/api/v1/calibration/tasks/export")
+        assert history_csv.status_code == 200
+        assert history_csv.headers["content-type"].startswith("text/csv")
+        assert history_csv.text.startswith("\ufeff")
+        history_rows = list(csv.reader(io.StringIO(history_csv.text.removeprefix("\ufeff"))))
+        assert history_rows == [
+            [
+                "robotSN",
+                "开始时间",
+                "任务状态",
+                "验收结果",
+                "ALN",
+                "AHN",
+                "BHN",
+                "BLN",
+                "BHY",
+                "BLY",
+                "ALY",
+                "AHY",
+            ],
+            [
+                "ANT-TEST",
+                response.json()["created_at"],
+                "COMPLETED",
+                "NOT_EVALUATED",
+                *[
+                    str(result["measurements"][key]["height_mm"])
+                    for key in MEASUREMENT_ORDER
+                ],
+            ],
+        ]
         deleted = client.delete(f"/api/v1/calibration/configs/{record['id']}")
         assert deleted.status_code == 204
         assert client.get("/api/v1/calibration/configs").json() == []
         assert client.get(f"/api/v1/calibration/tasks/{task_id}").json()["config"] == record["config"]
         assert client.delete(f"/api/v1/calibration/configs/{record['id']}").status_code == 404
-        assert "ALN" in csv.text and "BHY" in csv.text
+        assert "ALN" in task_csv.text and "BHY" in task_csv.text
         assert client.get("/api/v1/calibration/tasks/missing").status_code == 404
         assert client.post(f"/api/v1/calibration/tasks/{task_id}/confirm").status_code == 404
         assert (
