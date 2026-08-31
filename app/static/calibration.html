@@ -36,8 +36,8 @@
         <section class="panel">
           <div class="section-heading"><div><span class="eyebrow">02 / RUN</span><h2>启动标定</h2></div><span class="pill" id="mode-badge">模拟模式</span></div>
           <form id="start-form">
-            <div class="fields"><label>识别类型 <select id="identity-type"><option value="robotSN">robotSN</option><option value="robotLabel">robotLabel</option></select></label><label>机器人标识 <input id="identity" required pattern="[A-Za-z0-9_.:\-]+" placeholder="输入 robotSN" /></label><label>运行模式 <select id="mode"><option id="live-option" value="live" disabled>实机 · MQTT 控制</option><option value="simulation">模拟 · 不连接机器人</option></select></label></div>
-            <p class="hint">输入值直接用于 robot/state/{标识} 等 MQTT 主题，必须与机器人实际使用的标识一致。</p>
+            <div class="fields"><label>在线机器人 SN <select id="identity" required disabled><option value="">正在载入在线机器人…</option></select></label><label>运行模式 <select id="mode"><option id="live-option" value="live" disabled>实机 · MQTT 控制</option><option value="simulation">模拟 · 不连接机器人</option></select></label></div>
+            <p class="hint">列表来自设备服务，仅展示当前在线的 robotSN。选中的 SN 直接用于 robot/state/{robotSN} 等 MQTT 主题。</p>
             <div id="live-checks" hidden>
               <label class="check"><input id="ground-clear" type="checkbox" /> 光路照射地面，无遮挡，可以记录地面基准</label>
               <label class="check"><input id="robot-at-start" type="checkbox" /> 机器人空载、位于配置的起始地码和朝向</label>

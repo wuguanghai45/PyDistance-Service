@@ -25,6 +25,7 @@ from app.calibration_models import (
 )
 from app.calibration_service import TERMINAL, CalibrationService
 from app.calibration_store import StationBusy
+from app.device_registry import DeviceRegistryError, fetch_online_robot_sns
 
 
 def service(request: Request) -> CalibrationService:
@@ -64,6 +65,20 @@ async def system_info(svc: CalibrationService = Depends(service)) -> dict:
         "demo_config": demo_config().model_dump(),
         "measurement_order": ["ALN", "AHN", "BHN", "BLN", "BHY", "BLY", "ALY", "AHY"],
     }
+
+
+@router.get("/robots")
+async def robots(svc: CalibrationService = Depends(service)) -> dict[str, list[str]]:
+    """Return the currently online robot SNs from the factory device registry."""
+    try:
+        robot_sns = await asyncio.to_thread(
+            fetch_online_robot_sns,
+            svc.settings.ROBOT_DEVICE_API_URL,
+            svc.settings.ROBOT_DEVICE_API_TIMEOUT_SECONDS,
+        )
+    except DeviceRegistryError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return {"robot_sns": robot_sns}
 
 
 @router.get("/configs")

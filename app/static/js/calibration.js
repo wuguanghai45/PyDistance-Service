@@ -37,7 +37,7 @@
   async function json(path, body) { return (await api(path, body)).json(); }
   function handle(action) { return async (event) => { event?.preventDefault(); try { await action(event); } catch (error) { message(error.message, true); } }; }
   function updateStart() {
-    $("start").disabled = !configId || dirty || !!stationOwner;
+    $("start").disabled = !configId || dirty || !!stationOwner || !$("identity").value;
   }
   function markDirty() { dirty = true; $("recipe-state").textContent = "有未保存更改，请先保存新版本"; updateStart(); }
 
@@ -119,7 +119,7 @@
   $("config-form").addEventListener("input", markDirty);
   $("separate-storage").addEventListener("change", storageVisibility);
   $("config-select").addEventListener("change", () => { const record = recipes.find((r) => r.id === $("config-select").value); if (record) loadRecipe(record.config, record.id); });
-  $("demo").addEventListener("click", () => { if (system) { loadRecipe(system.demo_config); $("identity").value = "DEMO-ANT"; $("mode").value = "simulation"; setMode(); } });
+  $("demo").addEventListener("click", () => { if (system) { loadRecipe(system.demo_config); $("mode").value = "simulation"; setMode(); } });
   $("config-form").addEventListener("submit", handle(async () => {
     const record = await json("/configs", readRecipe()); await refreshRecipes(); loadRecipe(record.config, record.id); message("工位配置已保存为新版本。");
   }));
@@ -147,8 +147,8 @@
     if (dirty || !configId) throw new Error("请先保存工位配置");
     $("start").disabled = true;
     try {
-      const task = await json("/tasks", { config_id: configId, identity_type: $("identity-type").value,
-        identity: $("identity").value.trim(), mode: $("mode").value,
+      const task = await json("/tasks", { config_id: configId,
+        identity: $("identity").value, mode: $("mode").value,
         ground_clear_confirmed: $("ground-clear").checked, robot_at_start_confirmed: $("robot-at-start").checked,
         route_safe_confirmed: $("route-safe").checked, loaded_low_safe_confirmed: $("loaded-low-safe").checked,
         live_motion_confirmed: $("live-motion").checked });
@@ -323,7 +323,7 @@
     system = await json("/system"); stationOwner = system.station_owner;
     $("system-status").textContent = system.live_enabled ? "服务在线 · 实机已启用" : "服务在线 · 仅模拟可用（实机未启用）";
     $("live-option").disabled = !system.live_enabled;
-    $("identity-type").value = "robotSN";
+    await refreshRobots();
     $("mode").value = system.live_enabled ? "live" : "simulation";
     setMode();
     await refreshRecipes();
@@ -332,6 +332,18 @@
     if (stationOwner) await viewTask(stationOwner);
     updateStart(); message("服务已连接。");
   }
+  async function refreshRobots() {
+    const selected = $("identity").value;
+    $("identity").disabled = true;
+    updateStart();
+    const { robot_sns: robotSns } = await json("/robots");
+    $("identity").replaceChildren(el("option", robotSns.length ? "选择在线机器人" : "没有在线机器人", { value: "" }));
+    robotSns.forEach((robotSn) => $("identity").append(el("option", robotSn, { value: robotSn })));
+    $("identity").disabled = !robotSns.length;
+    if (robotSns.includes(selected)) $("identity").value = selected;
+    updateStart();
+  }
+  $("identity").addEventListener("change", updateStart);
   $("connect").addEventListener("click", handle(connect));
   const clock = setInterval(() => {
     if (!currentTask?.wait_until) {

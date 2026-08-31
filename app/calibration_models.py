@@ -115,14 +115,14 @@ class StartRequest(StrictModel):
     """Explicit identity and confirmations required before any hardware motion."""
 
     config_id: str
-    identity_type: Literal["robotLabel", "robotSN"] = Field(
-        default="robotSN", description="记录标识类型；不改变 MQTT 主题后缀"
+    identity_type: Literal["robotSN"] = Field(
+        default="robotSN", description="固定使用设备服务提供的 robotSN"
     )
     identity: str = Field(
         min_length=1,
         max_length=128,
         pattern=r"^[A-Za-z0-9_.:-]+$",
-        description="直接用于 MQTT 主题的机器人 SN 或 Label，必须与机器人实际主题一致",
+        description="设备服务提供的 robotSN，直接用作 MQTT 主题后缀",
     )
     mode: Literal["simulation", "live"] = "simulation"
     ground_clear_confirmed: bool = False

@@ -31,6 +31,7 @@ from app.calibration_routes import router, ws_router
 from app.calibration_service import CalibrationService
 from app.calibration_store import StationBusy, Store
 from app.config import Settings
+from app.device_registry import DeviceRegistryError
 from app.sensor import SensorService, _ChannelState
 
 
@@ -216,23 +217,22 @@ def test_live_gates_still_require_enablement_and_safety_confirmations(setup):
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("identity_type", ["robotSN", "robotLabel"])
-def test_robot_identifiers_pass_through_without_mapping(setup, identity_type):
-    """Both input types use the unchanged identifier for MQTT command labels."""
+def test_robot_sn_passes_through_without_mapping(setup):
+    """The selected robot SN is used unchanged in MQTT command labels."""
 
     async def run():
         svc, record, _, sensor = setup
         identifier = "ANT-SN.001"
         task = await svc.start(
             StartRequest(
-                config_id=record["id"], identity=identifier, identity_type=identity_type
+                config_id=record["id"], identity=identifier
             )
         )
         await svc.worker
         final = svc.snapshot(task["id"])
         assert final["status"] == "COMPLETED", final["error"]
         assert final["robot_label"] == final["identity"] == identifier
-        assert final["identity_type"] == identity_type
+        assert final["identity_type"] == "robotSN"
         commands = [
             event["data"]["payload"]
             for event in svc.store.events(task["id"])
@@ -251,6 +251,12 @@ def test_identifier_still_rejects_mqtt_topic_injection(identity):
     """Direct identifiers cannot introduce wildcards or another topic level."""
     with pytest.raises(ValidationError):
         StartRequest(config_id="config", identity=identity, identity_type="robotSN")
+
+
+def test_robot_label_identity_type_is_rejected():
+    """The calibration API accepts only device-registry robot serial numbers."""
+    with pytest.raises(ValidationError):
+        StartRequest(config_id="config", identity="ANT-TEST", identity_type="robotLabel")
 
 
 def test_baseline_failure_never_claims_or_moves_station(setup):
@@ -950,7 +956,7 @@ def test_sensor_rejects_bad_windows(kind):
         sensor.calibration_reading(1, now - 1, 0.5, 5, 0.2, 3)
 
 
-def test_api_without_token_and_websocket_without_handshake(tmp_path):
+def test_api_without_token_and_websocket_without_handshake(tmp_path, monkeypatch):
     @asynccontextmanager
     async def lifespan(app):
         store = Store(str(tmp_path / "api.sqlite3"))
@@ -970,10 +976,26 @@ def test_api_without_token_and_websocket_without_handshake(tmp_path):
     app = FastAPI(lifespan=lifespan)
     app.include_router(router)
     app.include_router(ws_router)
+    monkeypatch.setattr(
+        "app.calibration_routes.fetch_online_robot_sns",
+        lambda url, timeout_seconds: ["K31A02AN", "K31A04AN"],
+    )
     with TestClient(app) as client:
         record = app.state.record
         assert client.get("/api/v1/calibration/configs").status_code == 200
         assert not client.get("/api/v1/calibration/system").json()["live_enabled"]
+        assert client.get("/api/v1/calibration/robots").json() == {
+            "robot_sns": ["K31A02AN", "K31A04AN"]
+        }
+        monkeypatch.setattr(
+            "app.calibration_routes.fetch_online_robot_sns",
+            lambda url, timeout_seconds: (_ for _ in ()).throw(
+                DeviceRegistryError("无法获取在线机器人列表")
+            ),
+        )
+        unavailable = client.get("/api/v1/calibration/robots")
+        assert unavailable.status_code == 503
+        assert unavailable.json()["detail"] == "无法获取在线机器人列表"
         app.state.calibration.settings.CALIBRATION_LIVE_ENABLED = True
         app.state.calibration.settings.MQTT_HOST = "not-used.invalid"
         assert client.get("/api/v1/calibration/system").json()["live_enabled"]

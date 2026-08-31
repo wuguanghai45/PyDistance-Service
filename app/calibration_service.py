@@ -69,8 +69,8 @@ class CalibrationService:
             config = StationConfig.model_validate(
                 self.store.config(request.config_id)["config"]
             )
-            # StartRequest validates topic-safe characters. SN/Label is metadata;
-            # both are passed through unchanged as the actual MQTT identifier.
+            # StartRequest validates the device registry's topic-safe robot SN.
+            # It is passed through unchanged as the MQTT topic identifier.
             label = request.identity
             if request.mode == "live":
                 if (
