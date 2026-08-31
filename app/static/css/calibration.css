@@ -22,7 +22,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #83b9dd; outline-
 input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: #1268a1; }
 input:disabled { background: #f0f3f5; color: #9ca9b3; }
 .record-select { position: relative; }
-.run-fields { grid-template-columns: minmax(0, 1fr) minmax(210px, 0.48fr); align-items: end; }
+.run-fields { display: grid; grid-template-columns: minmax(0, 1fr); align-items: end; }
 .robot-picker-field { min-width: 0; }
 .robot-picker-field > label { margin-bottom: 7px; }
 .record-select-row { display: flex; gap: 8px; align-items: stretch; }

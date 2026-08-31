@@ -69,6 +69,7 @@ def setup(tmp_path):
 
 def request(record, **kwargs):
     """Construct a default safe simulation request."""
+    kwargs.setdefault("mode", "simulation")
     return StartRequest(config_id=record["id"], identity="ANT-TEST", **kwargs)
 
 
@@ -225,7 +226,7 @@ def test_robot_sn_passes_through_without_mapping(setup):
         identifier = "ANT-SN.001"
         task = await svc.start(
             StartRequest(
-                config_id=record["id"], identity=identifier
+                config_id=record["id"], identity=identifier, mode="simulation"
             )
         )
         await svc.worker
@@ -965,7 +966,11 @@ def test_api_without_token_and_websocket_without_handshake(tmp_path, monkeypatch
             CALIBRATION_LIVE_ENABLED=False,
             MQTT_HOST="",
         )
-        app.state.calibration = CalibrationService(store, FakeSensor(), settings)
+        svc = CalibrationService(store, FakeSensor(), settings)
+        svc.robot_factory = lambda label, config, robot_settings, audit: SimRobot(
+            label, config, robot_settings, audit
+        )
+        app.state.calibration = svc
         app.state.record = store.save_config(demo_config().model_dump())
         try:
             yield
@@ -1007,9 +1012,22 @@ def test_api_without_token_and_websocket_without_handshake(tmp_path, monkeypatch
             ).status_code
             == 403
         )
-        response = client.post(
+        simulation = client.post(
             "/api/v1/calibration/tasks",
             json=request(record).model_dump(),
+        )
+        assert simulation.status_code == 422
+        response = client.post(
+            "/api/v1/calibration/tasks",
+            json=request(
+                record,
+                mode="live",
+                ground_clear_confirmed=True,
+                robot_at_start_confirmed=True,
+                route_safe_confirmed=True,
+                loaded_low_safe_confirmed=True,
+                live_motion_confirmed=True,
+            ).model_dump(),
         )
         assert response.status_code == 201, response.text
         task_id = response.json()["id"]
@@ -1021,7 +1039,7 @@ def test_api_without_token_and_websocket_without_handshake(tmp_path, monkeypatch
         result = client.get(f"/api/v1/calibration/tasks/{task_id}/result").json()
         assert len(result["measurements"]) == 8
         csv = client.get(f"/api/v1/calibration/tasks/{task_id}/export")
-        assert "simulation,COMPLETED" in csv.text
+        assert "live,COMPLETED" in csv.text
         deleted = client.delete(f"/api/v1/calibration/configs/{record['id']}")
         assert deleted.status_code == 204
         assert client.get("/api/v1/calibration/configs").json() == []

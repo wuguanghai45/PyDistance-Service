@@ -38,7 +38,7 @@
   async function json(path, body) { return (await api(path, body)).json(); }
   function handle(action) { return async (event) => { event?.preventDefault(); try { await action(event); } catch (error) { message(error.message, true); } }; }
   function updateStart() {
-    $("start").disabled = !configId || dirty || !!stationOwner || !$("identity").value;
+    $("start").disabled = !system?.live_enabled || !configId || dirty || !!stationOwner || !$("identity").value;
   }
   function markDirty() { dirty = true; $("recipe-state").textContent = "有未保存更改，请先保存新版本"; updateStart(); }
 
@@ -120,7 +120,6 @@
   $("config-form").addEventListener("input", markDirty);
   $("separate-storage").addEventListener("change", storageVisibility);
   $("config-select").addEventListener("change", () => { const record = recipes.find((r) => r.id === $("config-select").value); if (record) loadRecipe(record.config, record.id); });
-  $("demo").addEventListener("click", () => { if (system) { loadRecipe(system.demo_config); $("mode").value = "simulation"; setMode(); } });
   $("config-form").addEventListener("submit", handle(async () => {
     const record = await json("/configs", readRecipe()); await refreshRecipes(); loadRecipe(record.config, record.id); message("工位配置已保存为新版本。");
   }));
@@ -138,22 +137,16 @@
     updateStart();
     message(`配置“${name}”已删除。`);
   }));
-  function setMode() {
-    const live = $("mode").value === "live";
-    $("live-checks").hidden = !live; $("mode-badge").textContent = live ? "实机模式" : "模拟模式";
-    $("mode-badge").className = live ? "pill live" : "pill";
-  }
-  $("mode").addEventListener("change", setMode);
   $("start-form").addEventListener("submit", handle(async () => {
     if (dirty || !configId) throw new Error("请先保存工位配置");
     $("start").disabled = true;
     try {
       const task = await json("/tasks", { config_id: configId,
-        identity: $("identity").value, mode: $("mode").value,
+        identity: $("identity").value, mode: "live",
         ground_clear_confirmed: $("ground-clear").checked, robot_at_start_confirmed: $("robot-at-start").checked,
         route_safe_confirmed: $("route-safe").checked, loaded_low_safe_confirmed: $("loaded-low-safe").checked,
         live_motion_confirmed: $("live-motion").checked });
-      stationOwner = task.id; await viewTask(task.id); message(task.mode === "simulation" ? "模拟已启动；不会连接 MQTT 或移动真实机器人。" : "实机标定已启动，请留意现场安全。");
+      stationOwner = task.id; await viewTask(task.id); message("实机标定已启动，请留意现场安全。");
     } finally { updateStart(); }
   }));
 
@@ -322,13 +315,10 @@
   }));
   async function connect() {
     system = await json("/system"); stationOwner = system.station_owner;
-    $("system-status").textContent = system.live_enabled ? "服务在线 · 实机已启用" : "服务在线 · 仅模拟可用（实机未启用）";
-    $("live-option").disabled = !system.live_enabled;
+    $("system-status").textContent = system.live_enabled ? "服务在线 · 实机已启用" : "实机未启用 · 请检查 CALIBRATION_LIVE_ENABLED 和 MQTT_HOST";
     await refreshRobots();
-    $("mode").value = system.live_enabled ? "live" : "simulation";
-    setMode();
     await refreshRecipes();
-    if (!currentConfig) { if (recipes.length) loadRecipe(recipes[0].config, recipes[0].id); else loadRecipe(system.demo_config); }
+    if (!currentConfig && recipes.length) loadRecipe(recipes[0].config, recipes[0].id);
     await refreshHistory();
     if (stationOwner) await viewTask(stationOwner);
     updateStart(); message("服务已连接。");

@@ -124,7 +124,9 @@ class StartRequest(StrictModel):
         pattern=r"^[A-Za-z0-9_.:-]+$",
         description="设备服务提供的 robotSN，直接用作 MQTT 主题后缀",
     )
-    mode: Literal["simulation", "live"] = "simulation"
+    mode: Literal["simulation", "live"] = Field(
+        default="live", description="HTTP 标定任务固定为实机模式"
+    )
     ground_clear_confirmed: bool = False
     robot_at_start_confirmed: bool = False
     route_safe_confirmed: bool = False

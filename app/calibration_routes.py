@@ -119,7 +119,9 @@ async def delete_config(
 async def start_task(
     body: StartRequest, svc: CalibrationService = Depends(service)
 ) -> dict:
-    """Capture baseline and launch a task; default mode never controls hardware."""
+    """Capture a live baseline and launch one explicitly confirmed hardware task."""
+    if body.mode != "live":
+        raise HTTPException(422, "标定任务仅支持实机模式")
     try:
         return await svc.start(body)
     except (ValueError, KeyError) as exc:

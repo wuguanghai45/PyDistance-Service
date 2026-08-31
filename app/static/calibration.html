@@ -17,7 +17,7 @@
     <p id="message" role="status" aria-live="polite"></p>
     <div class="layout">
       <section class="panel config-panel">
-        <div class="section-heading"><div><span class="eyebrow">01 / RECIPE</span><h2>工位与工艺配置</h2></div><button id="demo" class="secondary" type="button">载入演示配置</button></div>
+        <div class="section-heading"><div><span class="eyebrow">01 / RECIPE</span><h2>工位与工艺配置</h2></div></div>
         <label>已保存版本 <select id="config-select"><option value="">选择工位配置</option></select></label>
         <div class="actions"><button id="delete-config" class="danger" type="button">删除当前配置</button></div>
         <form id="config-form">
@@ -34,11 +34,11 @@
       </section>
       <div class="right-column">
         <section class="panel">
-          <div class="section-heading"><div><span class="eyebrow">02 / RUN</span><h2>启动标定</h2></div><span class="pill" id="mode-badge">模拟模式</span></div>
+          <div class="section-heading"><div><span class="eyebrow">02 / RUN</span><h2>启动标定</h2></div><span class="pill live">实机模式</span></div>
           <form id="start-form">
-            <div class="fields run-fields"><div class="robot-picker-field"><label for="identity-search">在线机器人 SN</label><div class="record-select-row"><div class="record-select" id="identity-picker"><input id="identity-search" class="record-select-input" type="text" role="combobox" aria-autocomplete="list" aria-controls="identity-options" aria-expanded="false" autocomplete="off" disabled placeholder="正在载入在线机器人…" /><input id="identity" type="hidden" /><div id="identity-options" class="record-select-options" role="listbox" hidden></div></div><button id="refresh-robots" class="secondary" type="button">刷新列表</button></div></div><label>运行模式 <select id="mode"><option id="live-option" value="live" disabled>实机 · MQTT 控制</option><option value="simulation">模拟 · 不连接机器人</option></select></label></div>
+            <div class="run-fields"><div class="robot-picker-field"><label for="identity-search">在线机器人 SN</label><div class="record-select-row"><div class="record-select" id="identity-picker"><input id="identity-search" class="record-select-input" type="text" role="combobox" aria-autocomplete="list" aria-controls="identity-options" aria-expanded="false" autocomplete="off" disabled placeholder="正在载入在线机器人…" /><input id="identity" type="hidden" /><div id="identity-options" class="record-select-options" role="listbox" hidden></div></div><button id="refresh-robots" class="secondary" type="button">刷新列表</button></div></div></div>
             <p class="hint run-hint">列表来自设备服务，仅展示当前在线 robotSN。可输入 SN（如 K35）或别名（如 501）；选中的 SN 直接用于 robot/state/{robotSN} 等 MQTT 主题。</p>
-            <div id="live-checks" hidden>
+            <div id="live-checks">
               <p class="live-checks-title">实机安全确认 <span>需全部勾选</span></p>
               <label class="check"><input id="ground-clear" type="checkbox" /> 光路照射地面，无遮挡，可以记录地面基准</label>
               <label class="check"><input id="robot-at-start" type="checkbox" /> 机器人空载、位于配置的起始地码和朝向</label>
@@ -46,7 +46,7 @@
               <label class="check"><input id="loaded-low-safe" type="checkbox" /> 负载低位仍承重，带箱低位旋转安全，激光照射平台测量面</label>
               <label class="check"><input id="live-motion" type="checkbox" /> 允许该机器人执行本次实机标定动作</label>
             </div>
-            <p class="hint">点击开始时记录当前地面距离；整个任务固定使用该基准。模拟模式使用独立合成数据，并缩短等待时间。</p>
+            <p class="hint">点击开始时记录当前地面距离；整个任务固定使用该基准。仅在全部安全确认完成且实机服务已启用时，才能开始标定。</p>
             <button type="submit" id="start" disabled>开始标定</button>
           </form>
           <p class="sensor-line" id="sensor-live">物理传感器：等待数据…</p>
