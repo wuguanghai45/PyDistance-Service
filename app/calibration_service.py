@@ -31,7 +31,6 @@ class CalibrationService:
         self.worker: asyncio.Task | None = None
         self.robot = None
         self.current: dict | None = None
-        self.confirmed = asyncio.Event()
 
     def _reading(self, config: StationConfig, since: float) -> dict:
         """Collect a valid precision reading using the recipe's quality limits."""
@@ -115,7 +114,6 @@ class CalibrationService:
                 "step_title": "准备初始化",
                 "measurements": {},
                 "error": None,
-                "pending_confirmation": None,
                 "wait_until": None,
                 "verdict": "PENDING",
                 "robot_state": {},
@@ -213,7 +211,7 @@ class CalibrationService:
             )
             self._step("PICKUP", "举升取箱")
             await self.robot.command("LIFT", liftHeight=config.high_height_mm)
-            await self._verify_load(True, "CONFIRM_PICKUP", config)
+            await self._record_load_transition(True, config)
             await self._box_move(
                 config.calibration,
                 "RETURN_LOADED",
@@ -238,7 +236,7 @@ class CalibrationService:
             )
             self._step("DROP", "下降并归还料箱")
             await self.robot.command("LIFT", liftHeight=config.low_height_mm)
-            await self._verify_load(False, "CONFIRM_DROP", config)
+            await self._record_load_transition(False, config)
             await self._transit(
                 [*config.exit_waypoints, config.finish], "TO_FINISH", config
             )
@@ -262,9 +260,7 @@ class CalibrationService:
             task.update(status="FAILED", error=str(exc))
             self.store.event(task["id"], "failed", {"message": str(exc)})
         finally:
-            task.update(
-                finished_at=utc_now(), pending_confirmation=None, wait_until=None
-            )
+            task.update(finished_at=utc_now(), wait_until=None)
             self._save()
             if self.robot:
                 try:
@@ -526,7 +522,7 @@ class CalibrationService:
             "timestamp": utc_now(),
             "load_evidence": "simulation"
             if simulated
-            else ("telemetry" if config.load_feedback_field else "operator_confirmed"),
+            else ("telemetry" if config.load_feedback_field else "not_verified"),
         }
         self.current["measurements"][key] = result
         self._save()
@@ -542,68 +538,47 @@ class CalibrationService:
         ):
             raise ValueError("载荷反馈与测量工况不匹配，禁止记录为 N/Y")
 
-    async def _verify_load(
-        self, loaded: bool, step: str, config: StationConfig
+    async def _record_load_transition(
+        self, loaded: bool, config: StationConfig
     ) -> None:
-        """Confirm pickup/drop using configured feedback or an explicit operator gate."""
-        self._step(step, "确认料箱已取到" if loaded else "确认料箱已放回原位")
+        """Record a pickup/drop transition, waiting only for configured load feedback."""
         if self.current["mode"] == "simulation":
             self.store.event(
                 self.current["id"],
-                "load_confirmation",
+                "load_transition",
                 {"loaded": loaded, "source": "simulation"},
             )
             return
-        self.confirmed.clear()
-        if not config.load_feedback_field:
-            self.current["pending_confirmation"] = step
-            self._save()
-        deadline = time.monotonic() + config.confirmation_timeout_seconds
-        while True:
-            self.robot.guard()
-            if not self._is_idle():
-                if time.monotonic() >= deadline:
-                    raise TimeoutError("等待机器人静止超时")
-                await asyncio.sleep(0.05)
-                continue
-            if config.load_feedback_field:
+        source = "not_verified"
+        if config.load_feedback_field:
+            deadline = time.monotonic() + config.confirmation_timeout_seconds
+            while True:
+                self.robot.guard()
+                if not self._is_idle():
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("等待机器人静止超时")
+                    await asyncio.sleep(0.05)
+                    continue
                 value = field_value(self.robot.state, config.load_feedback_field)
                 valid = (
                     isinstance(value, (bool, int))
                     and value in (0, 1)
                     and bool(value) == loaded
                 )
-            else:
-                valid = self.confirmed.is_set()
-            if valid:
-                break
-            if time.monotonic() >= deadline:
-                raise TimeoutError("等待取箱/放箱确认超时")
-            await asyncio.sleep(0.05)
-        self.current["pending_confirmation"] = None
-        self._save()
+                if valid:
+                    source = "telemetry"
+                    break
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("等待取箱/放箱载荷反馈超时")
+                await asyncio.sleep(0.05)
         self.store.event(
             self.current["id"],
-            "load_confirmation",
+            "load_transition",
             {
                 "loaded": loaded,
-                "source": "telemetry" if config.load_feedback_field else "operator",
+                "source": source,
             },
         )
-
-    def confirm(self, task_id: str, step: str) -> dict:
-        """Acknowledge only the current task's pending pickup/drop step."""
-        task = self.store.task(task_id)
-        if (
-            not self.current
-            or self.current["id"] != task_id
-            or task["status"] != "RUNNING"
-            or task["pending_confirmation"] != step
-        ):
-            raise ValueError("确认已过期或当前步骤不需要确认")
-        self.confirmed.set()
-        self.store.event(task_id, "operator_confirmation", {"step": step})
-        return self.snapshot(task_id)
 
     async def cancel(self, task_id: str) -> dict:
         """Cancel orchestration, not hardware motion; wait for cleanup before unlock."""

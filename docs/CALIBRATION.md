@@ -99,7 +99,7 @@ TLS 默认验证服务器证书及主机名，可通过 `MQTT_CA_FILE` 指定工
 | max_sample_age_seconds | 0.2 | 最新样本最大年龄 |
 | max_spread_mm | 5 | 原始距离窗口极差上限，超过 5 mm 则不稳定；等于 5 mm 允许通过此检查 |
 | command_timeout_seconds | 60 | 连接/命令完成/到位等待上限 |
-| confirmation_timeout_seconds | 300 | 取放箱人工或载荷反馈确认超时 |
+| confirmation_timeout_seconds | 300 | 取放箱载荷反馈确认超时 |
 | telemetry_timeout_seconds | 3 | 机器人状态超过此时长视为离线 |
 | position_tolerance_mm | 50 | 坐标到位公差（含边界，默认 ±50 mm） |
 | orientation_tolerance_deg | 5 | 朝向到位公差（含边界，默认 ±5°；例如目标 90°、实际 91.910° 视为到位） |
@@ -124,7 +124,7 @@ TLS 默认验证服务器证书及主机名，可通过 `MQTT_CA_FILE` 指定工
 
 参考项目 Ant 状态只明确读取了 `qrCodeStatus`、坐标、朝向、举升高度，没有确认载荷字段。默认按扫码状态 + 位置 + 朝向核验到位；只有配置 `scan_code_field` 后才核验实际码字符串，不宣称已经验证未提供的字段。
 
-`load_feedback_field` 未配置时，取箱和放箱分别停在网页确认步骤。配置后采用反馈自动继续，并要求空载测量为 false、负载测量为 true；反馈缺失不能自动当作成功。人工确认模式的 Y 测量依赖现场工装确保低位始终承重，并记录为 `operator_confirmed`，不伪造自动载荷证据。
+取箱和放箱动作完成后均自动继续，不再要求网页确认。`load_feedback_field` 未配置时，Y 测量的 `load_evidence` 记录为 `not_verified`；现场工装仍必须确保低位始终承重。配置后会等待反馈自动继续，并要求空载测量为 false、负载测量为 true；反馈缺失或不匹配会使任务失败。
 
 初始化根据状态执行：UNKNOWN → INIT；若结果为 LOCATION_UNKNOWN，只有 `allow_set_origin=true` 才发送 HOME_SET_ORIGIN。最终必须 IDLE 且起点位姿匹配；已处于 IDLE 的机器人不重复强制初始化。
 
@@ -138,12 +138,12 @@ TLS 默认验证服务器证书及主机名，可通过 `MQTT_CA_FILE` 指定工
 | 4 | A 面升至 H，稳定 | AHN |
 | 5 | 高位旋转 180°至 B，稳定 | BHN |
 | 6 | B 面降至 L，稳定 | BLN |
-| 7 | 保持 B 朝向倒车至料箱点，升到 H，确认取箱 | — |
+| 7 | 保持 B 朝向倒车至料箱点，升到 H，自动继续 | — |
 | 8 | 保持 B 朝向前进返回标定点，高位稳定 | BHY |
 | 9 | B 面降至 L，稳定 | BLY |
 | 10 | 低位旋转 180°至 A，稳定 | ALY |
 | 11 | A 面升至 H，稳定 | AHY |
-| 12 | 高位正向移动至存放点，降至 L，确认归还 | — |
+| 12 | 高位正向移动至存放点，降至 L，自动继续 | — |
 | 13 | 按离开路线到完成点，确认最终位姿 | 流程完成 |
 
 命令一次只发一个，每个 UUID 独立关联结果。动作以匹配的 COMPLETE_SUCCESS 和其后新收到的静止/到位状态共同确认，旧 IDLE、其他命令结果、保留状态消息不能完成当前动作。重复完成消息不导致重复下发。断线不重连重发当前任务。
@@ -177,7 +177,6 @@ SQLite 目录需可写。Docker 部署应把 `/app/data` 作为持久卷；不�
 | GET /tasks/{id}/result | 完整或部分测量值 |
 | GET /tasks/{id}/events?after=0 | 顺序事件，500 条一页，以最后 seq 继续读取 |
 | POST /tasks/{id}/cancel | 停止后续调度，不是硬件急停 |
-| POST /tasks/{id}/confirm | `{"step":"CONFIRM_PICKUP","confirmed":true}`，放箱步骤为 CONFIRM_DROP |
 | POST /tasks/{id}/release | `{"robot_stopped_and_station_safe":true}`，仅终态可解锁 |
 | GET /tasks/{id}/export | 八项 CSV，未测项为 MISSING，保留模式/任务状态 |
 

@@ -225,8 +225,6 @@
     }
     const active = ["RUNNING", "CANCELLING"].includes(task.status);
     $("cancel").disabled = !active || task.status === "CANCELLING";
-    $("confirm-step").hidden = !task.pending_confirmation;
-    $("confirm-step").textContent = task.pending_confirmation === "CONFIRM_PICKUP" ? "确认料箱已取到" : "确认料箱已归还";
     $("release").hidden = active || !task.station_locked;
     $("export").disabled = false; $("export-json").disabled = false;
     if (task.station_locked) stationOwner = task.id;
@@ -255,7 +253,7 @@
     $("task-title").textContent = "等待标定任务"; $("task-status").textContent = "空闲";
     $("task-meta").textContent = "空载：ALN → AHN → BHN → BLN　负载：BHY → BLY → ALY → AHY";
     $("baseline").textContent = "—"; $("countdown").textContent = "—"; $("verdict").textContent = "待采集";
-    $("task-error").hidden = true; $("confirm-step").hidden = true; $("release").hidden = true;
+    $("task-error").hidden = true; $("release").hidden = true;
     $("cancel").disabled = true; $("export").disabled = true; $("export-json").disabled = true;
     $("measurements").replaceChildren();
     for (const key of order) {
@@ -279,7 +277,6 @@
     };
   }
   $("cancel").addEventListener("click", handle(async () => { renderTask(await json(`/tasks/${currentView}/cancel`, {})); }));
-  $("confirm-step").addEventListener("click", handle(async () => { renderTask(await json(`/tasks/${currentView}/confirm`, { step: currentTask.pending_confirmation, confirmed: true })); }));
   $("release").addEventListener("click", handle(async () => {
     if (!window.confirm("请现场确认：机器人已完全停止，料箱和工位安全。确认后才允许下一台机器人进入。")) return;
     renderTask(await json(`/tasks/${currentView}/release`, { robot_stopped_and_station_safe: true }));

@@ -59,7 +59,9 @@ class StationConfig(StrictModel):
         default=5, gt=0, description="保留字段：窗口极差仅记录，不再用于拒绝读数"
     )
     command_timeout_seconds: float = Field(default=60, ge=1, le=600)
-    confirmation_timeout_seconds: float = Field(default=300, ge=5, le=1800)
+    confirmation_timeout_seconds: float = Field(
+        default=300, ge=5, le=1800, description="取放箱载荷反馈等待超时"
+    )
     telemetry_timeout_seconds: float = Field(default=3, ge=0.2, le=30)
     position_tolerance_mm: float = Field(default=50, gt=0, le=50)
     orientation_tolerance_deg: float = Field(default=5, gt=0, le=10)
@@ -128,13 +130,6 @@ class StartRequest(StrictModel):
     route_safe_confirmed: bool = False
     loaded_low_safe_confirmed: bool = False
     live_motion_confirmed: bool = False
-
-
-class Confirmation(StrictModel):
-    """Bind operator acknowledgement to one current gate, preventing stale clicks."""
-
-    step: str
-    confirmed: bool
 
 
 class ReleaseRequest(StrictModel):

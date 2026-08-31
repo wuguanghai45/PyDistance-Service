@@ -28,7 +28,7 @@
           <p class="hint">标定传感器：ADS1115 A1（channel=1，实际接线端子）；地面基准及八项高度均取 A1。A0（channel=0）暂不启用。界面直接使用硬件名称，不再使用“通道 1 / 通道 2”的顺序编号。</p>
           <div class="fields" id="process-fields"></div>
           <details><summary>八项验收标准（未配置时只记录，不判定合格）</summary><div class="table-scroll"><table><thead><tr><th>启用</th><th>测量项</th><th>目标高度 / mm</th><th>允许偏差 / mm</th></tr></thead><tbody id="limit-fields"></tbody></table></div></details>
-          <details><summary>路线、反馈与高级参数</summary><p class="hint">approach_waypoints / exit_waypoints 为有序地码点列表。取箱、返回、归还为已确认的直线路段。载荷字段缺省时取放箱均需人工确认；不猜测扫码内容或载荷字段。</p><label>高级配置 JSON <textarea id="advanced" rows="12" spellcheck="false"></textarea></label></details>
+          <details><summary>路线、反馈与高级参数</summary><p class="hint">approach_waypoints / exit_waypoints 为有序地码点列表。取箱、返回、归还为已确认的直线路段。取箱和归还动作完成后会自动继续；配置载荷字段时，会等待相应反馈，不猜测扫码内容或载荷字段。</p><label>高级配置 JSON <textarea id="advanced" rows="12" spellcheck="false"></textarea></label></details>
           <div class="actions"><button type="submit" id="save-config">保存新版本</button><span id="recipe-state">未保存</span></div>
         </form>
       </section>
@@ -66,7 +66,7 @@
           </div>
           <p id="task-error" class="error" role="alert" hidden></p>
           <div class="table-scroll"><table><thead><tr><th>测量项</th><th>传感器 / mm</th><th>高度 / mm</th><th>偏差 / mm</th><th>判定</th></tr></thead><tbody id="measurements"></tbody></table></div>
-          <div class="actions"><button id="confirm-step" hidden type="button">确认现场状态</button><button id="cancel" class="danger" type="button" disabled>取消后续调度</button><button id="release" class="danger" hidden type="button">确认安全并解锁</button><button id="export" class="secondary" type="button" disabled>导出 CSV</button><button id="export-json" class="secondary" type="button" disabled>完整记录 JSON</button></div>
+          <div class="actions"><button id="cancel" class="danger" type="button" disabled>取消后续调度</button><button id="release" class="danger" hidden type="button">确认安全并解锁</button><button id="export" class="secondary" type="button" disabled>导出 CSV</button><button id="export-json" class="secondary" type="button" disabled>完整记录 JSON</button></div>
           <details><summary>当前任务事件</summary><ol id="events" class="events"></ol></details>
         </section>
       </div>

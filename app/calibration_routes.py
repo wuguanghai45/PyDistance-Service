@@ -18,7 +18,6 @@ from fastapi import (
 from fastapi.responses import Response
 
 from app.calibration_models import (
-    Confirmation,
     ReleaseRequest,
     StartRequest,
     StationConfig,
@@ -189,19 +188,6 @@ async def cancel(task_id: str, svc: CalibrationService = Depends(service)) -> di
     """Stop future scheduling; this endpoint is not a hardware emergency stop."""
     try:
         return await svc.cancel(task_id)
-    except (ValueError, KeyError) as exc:
-        raise translate_error(exc) from exc
-
-
-@router.post("/tasks/{task_id}/confirm")
-async def confirm(
-    task_id: str, body: Confirmation, svc: CalibrationService = Depends(service)
-) -> dict:
-    """Confirm a current pickup/drop gate, rejecting stale or negative acknowledgements."""
-    if not body.confirmed:
-        raise HTTPException(422, "未确认；请检查现场或取消任务")
-    try:
-        return svc.confirm(task_id, body.step)
     except (ValueError, KeyError) as exc:
         raise translate_error(exc) from exc
 

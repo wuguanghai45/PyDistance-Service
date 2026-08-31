@@ -333,8 +333,8 @@ def live_request(record):
     )
 
 
-def test_live_manual_pickup_drop_gates(setup):
-    """Unverified box operations pause motion until the matching operator gate is acknowledged."""
+def test_live_box_transitions_continue_without_manual_confirmation(setup):
+    """Pickup and drop continue automatically when no load feedback is configured."""
 
     async def run():
         svc, record, _, sensor = setup
@@ -346,28 +346,17 @@ def test_live_manual_pickup_drop_gates(setup):
 
         svc._wait_still = fast_wait
         task = await svc.start(live_request(record))
-        for gate in ("CONFIRM_PICKUP", "CONFIRM_DROP"):
-
-            async def wait_gate():
-                while svc.current["pending_confirmation"] != gate:
-                    assert svc.current["status"] == "RUNNING", svc.current["error"]
-                    await asyncio.sleep(0.01)
-
-            await asyncio.wait_for(wait_gate(), 3)
-            before = len(svc.store.events(task["id"]))
-            await asyncio.sleep(0.1)
-            assert len(svc.store.events(task["id"])) == before
-            with pytest.raises(ValueError):
-                svc.confirm(task["id"], "stale-step")
-            svc.confirm(task["id"], gate)
         await svc.worker
         assert svc.current["status"] == "COMPLETED"
         assert sensor.calls == 9
         assert [
-            e["data"]["step"]
+            e["data"]
             for e in svc.store.events(task["id"])
-            if e["kind"] == "operator_confirmation"
-        ] == ["CONFIRM_PICKUP", "CONFIRM_DROP"]
+            if e["kind"] == "load_transition"
+        ] == [
+            {"loaded": True, "source": "not_verified"},
+            {"loaded": False, "source": "not_verified"},
+        ]
 
     asyncio.run(run())
 
@@ -410,56 +399,6 @@ def test_missing_load_feedback_rejects_empty_phase(setup):
         assert svc.current["status"] == "FAILED"
         assert "载荷反馈" in svc.current["error"]
         assert not svc.current["measurements"]
-
-    asyncio.run(run())
-
-
-def test_cancel_at_confirmation_keeps_live_station_locked(setup):
-    """Cancelling a live manual gate cannot dispatch the return motion."""
-
-    async def run():
-        svc, record, _, _ = setup
-        enable_fake_live(svc)
-
-        async def fast_wait(*args):
-            return None
-
-        svc._wait_still = fast_wait
-        task = await svc.start(live_request(record))
-
-        async def wait_pickup():
-            while svc.current["pending_confirmation"] != "CONFIRM_PICKUP":
-                await asyncio.sleep(0.01)
-
-        await asyncio.wait_for(wait_pickup(), 3)
-        final = await svc.cancel(task["id"])
-        assert final["status"] == "CANCELLED"
-        assert final["station_locked"]
-        assert tuple(final["measurements"]) == ("ALN", "AHN", "BHN", "BLN")
-
-    asyncio.run(run())
-
-
-def test_confirmation_timeout_keeps_live_station_locked(setup):
-    """An unattended pickup gate times out without treating the load as confirmed."""
-
-    async def run():
-        svc, _, config, _ = setup
-        enable_fake_live(svc)
-        config.confirmation_timeout_seconds = 5
-        record = svc.store.save_config(config.model_dump())
-
-        async def fast_wait(*args):
-            return None
-
-        svc._wait_still = fast_wait
-        task = await svc.start(live_request(record))
-        await asyncio.wait_for(svc.worker, 8)
-        final = svc.snapshot(task["id"])
-        assert final["status"] == "FAILED"
-        assert "确认超时" in final["error"]
-        assert final["station_locked"]
-        assert tuple(final["measurements"]) == ("ALN", "AHN", "BHN", "BLN")
 
     asyncio.run(run())
 
@@ -1068,13 +1007,7 @@ def test_api_without_token_and_websocket_without_handshake(tmp_path):
         assert client.delete(f"/api/v1/calibration/configs/{record['id']}").status_code == 404
         assert "ALN" in csv.text and "BHY" in csv.text
         assert client.get("/api/v1/calibration/tasks/missing").status_code == 404
-        assert (
-            client.post(
-                f"/api/v1/calibration/tasks/{task_id}/confirm",
-                json={"step": "CONFIRM_PICKUP", "confirmed": True},
-            ).status_code
-            == 422
-        )
+        assert client.post(f"/api/v1/calibration/tasks/{task_id}/confirm").status_code == 404
         assert (
             client.post(
                 f"/api/v1/calibration/tasks/{task_id}/release",
