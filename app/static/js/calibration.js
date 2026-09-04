@@ -5,6 +5,12 @@
   const sensorChannel = 1; // ADS1115 A1: use the hardware index, not a display ordinal.
   const channelLabel = (channel) => Number.isInteger(channel) && channel >= 0 && channel <= 3 ? `ADS1115 A${channel}（channel=${channel}）` : "传感器通道未记录";
   const order = ["ALN", "AHN", "BHN", "BLN", "BHY", "BLY", "ALY", "AHY"];
+  const measurementDescriptions = {
+    ALN: "平台前端 · 低位 · 无负载", BLN: "平台后端 · 低位 · 无负载",
+    AHN: "平台前端 · 高位 · 无负载", BHN: "平台后端 · 高位 · 无负载",
+    ALY: "平台前端 · 低位 · 有负载", BLY: "平台后端 · 低位 · 有负载",
+    AHY: "平台前端 · 高位 · 有负载", BHY: "平台后端 · 高位 · 有负载",
+  };
   const points = { start: "起始点", calibration: "标定点 A", bin: "取箱点 B", storage: "存放点", finish: "完成点" };
   const process = {
     low_height_mm: ["低位指令 / mm", 0, 1000, 1],
@@ -254,7 +260,7 @@
     $("measurements").replaceChildren();
     for (const key of order) {
       const m = task.measurements[key], row = el("tr", null);
-      [key, number(m?.reading.distance_mm), number(m?.height_mm), number(m?.deviation_mm), m ? labels[m.verdict] : "待采集"].forEach((v) => row.append(el("td", v)));
+      [key, measurementDescriptions[key], number(m?.reading.distance_mm), number(m?.height_mm), number(m?.deviation_mm), m ? labels[m.verdict] : "待采集"].forEach((v) => row.append(el("td", v)));
       if (m) row.lastChild.className = m.verdict.toLowerCase(); $("measurements").append(row);
     }
     const active = ["RUNNING", "CANCELLING"].includes(task.status);
@@ -292,7 +298,7 @@
     $("measurements").replaceChildren();
     for (const key of order) {
       const row = el("tr", null);
-      [key, "—", "—", "—", "待采集"].forEach((value) => row.append(el("td", value)));
+      [key, measurementDescriptions[key], "—", "—", "—", "待采集"].forEach((value) => row.append(el("td", value)));
       $("measurements").append(row);
     }
     $("events").replaceChildren();
@@ -487,7 +493,7 @@
   }, 100);
   for (const key of order) {
     const row = el("tr", null);
-    [key, "—", "—", "—", "待采集"].forEach((value) => row.append(el("td", value)));
+    [key, measurementDescriptions[key], "—", "—", "—", "待采集"].forEach((value) => row.append(el("td", value)));
     $("measurements").append(row);
   }
   function connectSensor() {

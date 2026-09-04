@@ -63,6 +63,16 @@
         </section>
         <section class="panel task-panel">
           <div class="section-heading"><div><span class="eyebrow">03 / MEASUREMENT</span><h2 id="task-title">等待标定任务</h2></div><span class="pill" id="task-status">空闲</span></div>
+          <section class="measurement-legend" aria-labelledby="measurement-legend-title">
+            <div class="measurement-legend-title"><strong id="measurement-legend-title">八点高度代号说明</strong><span>代号顺序：测量端 · 举升状态 · 负载状态</span></div>
+            <div class="measurement-legend-keys" aria-label="代号字符定义"><span><b>A</b> 平台前端</span><span><b>B</b> 平台后端</span><span><b>L</b> 低位</span><span><b>H</b> 高位</span><span><b>N</b> 无负载</span><span><b>Y</b> 有负载</span></div>
+            <div class="measurement-legend-grid" aria-label="八项高度标定对照表">
+              <div><span>前端 A · 低位 L</span><strong>ALN <small>无负载</small></strong><strong>ALY <small>有负载</small></strong></div>
+              <div><span>后端 B · 低位 L</span><strong>BLN <small>无负载</small></strong><strong>BLY <small>有负载</small></strong></div>
+              <div><span>前端 A · 高位 H</span><strong>AHN <small>无负载</small></strong><strong>AHY <small>有负载</small></strong></div>
+              <div><span>后端 B · 高位 H</span><strong>BHN <small>无负载</small></strong><strong>BHY <small>有负载</small></strong></div>
+            </div>
+          </section>
           <p id="task-meta" class="hint">空载：ALN → AHN → BHN → BLN　负载：BHY → BLY → ALY → AHY</p>
           <progress id="progress" max="8" value="0" aria-label="已采集测量项"></progress>
           <div class="metrics"><div><span>地面基准</span><strong id="baseline">—</strong></div><div><span>采样等待</span><strong id="countdown">—</strong></div><div><span>验收结果</span><strong id="verdict">待采集</strong></div></div>
@@ -76,7 +86,7 @@
             <p id="robot-extra" class="hint" hidden>—</p>
           </div>
           <p id="task-error" class="error" role="alert" hidden></p>
-          <div class="table-scroll"><table><thead><tr><th>测量项</th><th>传感器 / mm</th><th>高度 / mm</th><th>偏差 / mm</th><th>判定</th></tr></thead><tbody id="measurements"></tbody></table></div>
+          <div class="table-scroll"><table><thead><tr><th>测量项</th><th>含义</th><th>传感器 / mm</th><th>高度 / mm</th><th>偏差 / mm</th><th>判定</th></tr></thead><tbody id="measurements"></tbody></table></div>
           <div class="actions"><button id="cancel" class="danger" type="button" disabled>取消后续调度</button><button id="release" class="danger" hidden type="button">确认安全并解锁</button><button id="export" class="secondary" type="button" disabled>导出 CSV</button><button id="export-json" class="secondary" type="button" disabled>完整记录 JSON</button></div>
           <details><summary>当前任务事件</summary><ol id="events" class="events"></ol></details>
         </section>
